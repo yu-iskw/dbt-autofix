@@ -2,7 +2,7 @@
 
 This tool can help teams clean up their dbt projects so that it conforms with dbt configuration best practices:
 
-- it helps identiy duplicate keys in YAML
+- it helps identify duplicate keys in YAML
   - while dbt allows those today, it is not allowed in YAML normally
   - dbt also takes in consideration the last key in case of duplicates which is not the intended behavior from the YAML spec in case of duplicates
 - it helps refactor YAML file to follow config best practices

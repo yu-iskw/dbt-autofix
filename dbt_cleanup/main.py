@@ -8,6 +8,7 @@ from dbt_cleanup.refactor import apply_changesets, changeset_all_yml_files
 
 app = typer.Typer(
     help="A tool to help clean up dbt projects",
+    no_args_is_help=True,
     add_completion=False,
 )
 
