@@ -1,0 +1,15 @@
+import nox
+
+nox.options.default_venv_backend = "uv|venv"
+
+
+@nox.session(python=["3.9", "3.10", "3.11", "3.12"])
+def run_cli(session):
+    """Make sure the CLI runs correctly"""
+    session.run("dbt-cleanup", "--help")
+
+
+@nox.session(python=["3.9", "3.10", "3.11", "3.12"])
+def pytest(session):
+    """Run the tests"""
+    session.run("pytest")

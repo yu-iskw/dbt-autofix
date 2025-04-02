@@ -1,0 +1,13 @@
+name: Run Nox on PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  nox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fjwillemsen/setup-nox2@v3.0.0
+      - run: nox
