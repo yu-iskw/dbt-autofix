@@ -25,7 +25,7 @@ def load_yaml_check_duplicates(yml_file: Path) -> str:
         data = yaml_file_manager.read_file(yml_file)
     except DuplicateKeyError:
         console.print(
-            f"There are duplicate keys in {yml_file.absolute()}\nMake sure to fix those before re-running this command.",
+            f"There are duplicate keys in {yml_file.absolute()}\nTo identify all of those, run the 'duplicates' command.\nMake sure to fix those before re-running the refactor command.",
             style="bold red",
         )
         exit(1)
@@ -59,7 +59,6 @@ allowed_config_fields = set(
         "grants",
         "contract",
         "event_time",
-        # TODO: warehouse specific
         # Snowflake: https://github.com/dbt-labs/dbt-adapters/blob/af33935b119347cc021554ea854884bce986ef8d/dbt-snowflake/src/dbt/adapters/snowflake/impl.py#L42-L58
         "transient",
         "cluster_by",
@@ -94,7 +93,7 @@ allowed_config_fields = set(
         "enable_list_inference",
         "intermediate_format",
         "submission_method",
-        # PG
+        # Postgres
         "unlogged",
         "indexes",
         # Redshift
