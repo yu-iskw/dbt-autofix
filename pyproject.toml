@@ -1,0 +1,41 @@
+[project]
+name = "dbt-cleanup"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dbt-meshify>=0.5.5",
+    "pyyaml>=6.0.2",
+    "typer>=0.15.2",
+    "yamllint>=1.37.0",
+    "rich>=13.7.0",
+]
+
+[tool.uv]
+package = true
+
+[project.scripts]
+dbt-cleanup = "dbt_cleanup.main:app"
+
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.2.0",
+    "pytest-cov>=4.1.0",
+    "pre-commit>=4.2.0",
+]
+
+
+[tool.ruff]
+
+# Same as Black.
+line-length = 100
+indent-width = 4
+
+[tool.ruff.lint]
+# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
+# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
+# McCabe complexity (`C901`) by default.
+select = ["E4", "E7", "E9", "F", "I"]
+ignore = []
