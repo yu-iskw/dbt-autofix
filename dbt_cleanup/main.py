@@ -1,10 +1,11 @@
 from pathlib import Path
 
 import typer
+from rich import print
 from typing_extensions import Annotated
 
 from dbt_cleanup.duplicate_keys import find_duplicate_keys, print_duplicate_keys
-from dbt_cleanup.refactor import apply_changesets, changeset_all_yml_files
+from dbt_cleanup.refactor import apply_changesets, changeset_all_sql_yml_files
 
 app = typer.Typer(
     help="A tool to help clean up dbt projects",
@@ -19,7 +20,7 @@ def identify_duplicate_keys(
         "."
     ),
 ):
-    print(f"Identifying duplicates in {path}")
+    print(f"[green]Identifying duplicates in {path}[/green]\n")
     project_duplicates, package_duplicates = find_duplicate_keys(path)
     print_duplicate_keys(project_duplicates, package_duplicates)
 
@@ -33,12 +34,18 @@ def refactor_yml(
         bool, typer.Option("--dry-run", "-d", help="In dry run mode, do not apply changes")
     ] = False,
 ):
-    changesets = changeset_all_yml_files(path)
+    changesets = changeset_all_sql_yml_files(path)
+    yaml_results, sql_results = changesets
     if dry_run:
-        for changeset in changesets:
-            print(changeset.refactored_yaml)
+        print("[red]-- Dry run mode, not applying changes --[/red]")
+        for changeset in yaml_results:
+            if changeset.refactored:
+                changeset.print_to_console(dry_run)
+        for changeset in sql_results:
+            if changeset.refactored:
+                changeset.print_to_console(dry_run)
     else:
-        apply_changesets(changesets)
+        apply_changesets(yaml_results, sql_results)
 
 
 if __name__ == "__main__":

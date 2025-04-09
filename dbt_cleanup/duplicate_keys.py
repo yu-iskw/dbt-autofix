@@ -116,8 +116,8 @@ def print_duplicate_keys(
 
     if package_duplicates:
         console.print(
-            "\nThose packages have issues. If those are not maintained by you, check if there are updates available. "
-            "If they are private packages, remove duplicates in their own reposutory and publish a new version.\n",
+            "\nThose packages might have issues. If those are not maintained by you, check if there are updates available. "
+            "If they are private packages, remove duplicates in their own repository and publish a new version.\n",
             style="bold red",
         )
         for dup in package_duplicates:
