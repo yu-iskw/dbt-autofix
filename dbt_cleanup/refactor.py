@@ -184,8 +184,11 @@ class SQLRefactorResult:
         """Update the SQL file with the refactored content"""
         Path(self.file_path).write_text(self.refactored_content)
 
-    def print_to_console(self):
-        console.print(f"\nRefactored {self.file_path}:", style="green")
+    def print_to_console(self, dry_run: bool = False):
+        console.print(
+            f"\n{'DRY RUN - NOT APPLIED: ' if dry_run else ''}Refactored {self.file_path}:",
+            style="green",
+        )
         for log in self.refactor_logs:
             console.print(f"  {log}", style="yellow")
 
