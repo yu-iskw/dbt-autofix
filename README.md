@@ -9,10 +9,10 @@ This tool can help teams clean up their dbt projects so that it conforms with db
   - it moves all the allowed configs under `config`
   - it moves all the custom configs under `meta`, and `meta` under `config`
   - the tool tries to keep most YAML comments intact as part of the refactor
+- it helps refactor SQL files, removing some invaid Jinja
+  - it removes `{% endmacro %}` and `{% endif %}` that don't have corresponding opening statements
 
 ## Installation
-
---- TBD with pypi ---
 
 To run it from the git repo directly, install `uv` and then
 
@@ -29,4 +29,11 @@ uv tool install --from git+https://github.com/dbt-labs/dbt-cleanup.git dbt-clean
 ## Usage
 
 - `dbt-cleanup duplicates`: identify duplicate keys in YAML and prompt users to fix those manually
+  - add `--path <mypath>` to configure the path of the dbt project (defaults to `.`)
 - `dbt-cleanup refactor`: refactor YAML files following config best practices
+  - add `--path <mypath>` to configure the path of the dbt project (defaults to `.`)
+  - add `--dry-run` for running in dry run mode
+
+Calling `refactor` without `--dry-run` should be safe if your dbt code is part of a git repo. 
+
+Please review the changes before merging to `main` and maket those changes go through your typical CI/CD process.

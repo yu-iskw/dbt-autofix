@@ -1,7 +1,8 @@
 import difflib
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Set, Tuple
 
 from dbt_meshify.storage.file_manager import DbtYAML, YAMLFileManager
 from rich.console import Console
@@ -151,10 +152,10 @@ allowed_fields = [
 
 
 @dataclass
-class RefactorResult:
+class YMLRefactorResult:
     file_path: Path
     refactored: bool
-    refactored_yaml: bool
+    refactored_yaml: str
     original_yaml: str
     refactor_logs: list[str]
 
@@ -162,56 +163,262 @@ class RefactorResult:
         """Update the YAML file with the refactored content"""
         Path(self.file_path).write_text(self.refactored_yaml)
 
+    def print_to_console(self, dry_run: bool = False):
+        console.print(
+            f"\n{'DRY RUN - NOT APPLIED: ' if dry_run else ''}Refactored {self.file_path}:",
+            style="green",
+        )
+        for log in self.refactor_logs:
+            console.print(f"  {log}", style="yellow")
 
-def changeset_refactor_yml(yml_file: Path) -> RefactorResult:
+
+@dataclass
+class SQLRefactorResult:
+    file_path: Path
+    refactored: bool
+    refactored_content: str
+    original_content: str
+    refactor_logs: list[str]
+
+    def update_sql_file(self) -> None:
+        """Update the SQL file with the refactored content"""
+        Path(self.file_path).write_text(self.refactored_content)
+
+    def print_to_console(self):
+        console.print(f"\nRefactored {self.file_path}:", style="green")
+        for log in self.refactor_logs:
+            console.print(f"  {log}", style="yellow")
+
+
+def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:
+    """Remove unmatched {% endmacro %} and {% endif %} tags from SQL content.
+
+    Handles:
+    - Multi-line tags
+    - Whitespace control variants ({%- and -%})
+    - Nested blocks
+
+    Args:
+        sql_content: The SQL content to process
+
+    Returns:
+        Tuple containing:
+        - The processed SQL content
+        - List of removal messages
+    """
+    # Regex patterns for Jinja tag matching
+    JINJA_TAG_PATTERN = re.compile(r"{%-?\s*(.*?)\s*-?%}", re.DOTALL)
+    MACRO_START = re.compile(r"macro\s+([^\s(]+)")  # Captures macro name
+    IF_START = re.compile(r"if\s+.*")
+    MACRO_END = re.compile(r"endmacro")
+    IF_END = re.compile(r"endif")
+
+    logs = []
+    # Track macro and if states with their positions
+    macro_stack = []  # [(start_pos, end_pos, macro_name), ...]
+    if_stack = []  # [(start_pos, end_pos), ...]
+
+    # Track positions to remove
+    to_remove = []  # [(start_pos, end_pos), ...]
+
+    # Find all Jinja tags
+    for match in JINJA_TAG_PATTERN.finditer(sql_content):
+        tag_content = match.group(1)
+        start_pos = match.start()
+        end_pos = match.end()
+
+        # Check for macro start
+        macro_match = MACRO_START.match(tag_content)
+        if macro_match:
+            macro_name = macro_match.group(1)
+            macro_stack.append((start_pos, end_pos, macro_name))
+            continue
+
+        # Check for if start
+        if IF_START.match(tag_content):
+            if_stack.append((start_pos, end_pos))
+            continue
+
+        # Handle endmacro
+        if MACRO_END.match(tag_content):
+            if not macro_stack:
+                to_remove.append((start_pos, end_pos))
+                # Count lines, adjusting for content before first newline
+                prefix = sql_content[:start_pos]
+                first_newline = prefix.find("\n")
+                if first_newline == -1:
+                    line_num = 1
+                else:
+                    line_num = prefix.count("\n", first_newline) + 1
+                logs.append(f"Removed unmatched {{% endmacro %}} near line {line_num}")
+            else:
+                macro_stack.pop()
+            continue
+
+        # Handle endif
+        if IF_END.match(tag_content):
+            if not if_stack:
+                to_remove.append((start_pos, end_pos))
+                # Count lines, adjusting for content before first newline
+                prefix = sql_content[:start_pos]
+                first_newline = prefix.find("\n")
+                if first_newline == -1:
+                    line_num = 1
+                else:
+                    line_num = prefix.count("\n", first_newline) + 1
+                logs.append(f"Removed unmatched {{% endif %}} near line {line_num}")
+            else:
+                if_stack.pop()
+
+    # Remove the unmatched tags from end to start to maintain correct positions
+    result = sql_content
+    for start, end in sorted(to_remove, reverse=True):
+        result = result[:start] + result[end:]
+
+    return result, logs
+
+
+def process_yaml_files(path: Path, model_paths: List[str]) -> List[YMLRefactorResult]:
+    """Process all YAML files in the project
+
+    Args:
+        path: Project root path
+    """
+    yaml_results = []
+    for model_path in model_paths:
+        yaml_files = set((path / Path(model_path)).resolve().glob("**/*.yml")).union(
+            set((path / Path(model_path)).resolve().glob("**/*.yaml"))
+        )
+        for yml_file in yaml_files:
+            refactor_result = changeset_refactor_yml(yml_file)
+            yaml_results.append(refactor_result)
+
+    return yaml_results
+
+
+def process_sql_files(path: Path, sql_paths: Set[str]) -> List[SQLRefactorResult]:
+    """Process all SQL files in the given paths for unmatched endings.
+
+    Args:
+        path: Base project path
+        sql_paths: Set of paths relative to project root where SQL files are located
+
+    Returns:
+        List of SQLRefactorResult for each processed file
+    """
+    results = []
+
+    for sql_path in sql_paths:
+        full_path = (path / sql_path).resolve()
+        if not full_path.exists():
+            console.print(f"Warning: Path {full_path} does not exist", style="yellow")
+            continue
+
+        sql_files = full_path.glob("**/*.sql")
+        for sql_file in sql_files:
+            try:
+                content = sql_file.read_text()
+                new_content, logs = remove_unmatched_endings(content)
+
+                results.append(
+                    SQLRefactorResult(
+                        file_path=sql_file,
+                        refactored=new_content != content,
+                        refactored_content=new_content,
+                        original_content=content,
+                        refactor_logs=logs,
+                    )
+                )
+            except Exception as e:
+                console.print(f"Error processing {sql_file}: {e}", style="bold red")
+
+    return results
+
+
+def restructure_yaml_keys(model: Dict) -> Tuple[Dict, bool, List[str]]:
+    """Restructure YAML keys according to dbt conventions.
+
+    Args:
+        model: The model dictionary to process
+        refactor_logs: List to append logs to
+
+    Returns:
+        Tuple containing:
+        - The processed model dictionary
+        - Boolean indicating if changes were made
+        - List of refactor logs
+    """
+    refactored = False
+    refactor_logs = []
+    existing_meta = model.get("meta", {}).copy()
+
+    # we can not loop model and modify it at the same time
+    copy_model = model.copy()
+
+    for field in copy_model:
+        if field in allowed_fields:
+            continue
+        if field in allowed_config_fields_except_meta:
+            refactored = True
+            model_config = model.get("config", {})
+            model_config.update({field: model[field]})
+            refactor_logs.append(f"Field '{field}' would be moved under config.")
+            model["config"] = model_config
+            del model[field]
+        if field not in allowed_config_fields:
+            refactored = True
+            closest_match = difflib.get_close_matches(
+                field, allowed_config_fields.union(set(allowed_fields)), 1
+            )
+            if closest_match:
+                refactor_logs.append(
+                    f"Model {model['name']} - Field '{field}' is not allowed, but '{closest_match[0]}' is. Moved as-is under config.meta but you might want to rename it and move it under config."
+                )
+            else:
+                refactor_logs.append(
+                    f"Model {model['name']} - Field '{field}' is not an allowed config - Moved under config.meta."
+                )
+            model_meta = model.get("config", {}).get("meta", {})
+            model_meta.update({field: model[field]})
+            model["config"] = {"meta": model_meta}
+            del model[field]
+
+    if existing_meta:
+        refactored = True
+        refactor_logs.append(
+            f"Model {model['name']} - Moved all the meta fields under config.meta and merged with existing config.meta."
+        )
+        if "config" not in model:
+            model["config"] = {"meta": {}}
+        if "meta" not in model["config"]:
+            model["config"]["meta"] = {}
+        for key, value in existing_meta.items():
+            model["config"]["meta"].update({key: value})
+        del model["meta"]
+
+    return model, refactored, refactor_logs
+
+
+def changeset_refactor_yml(yml_file: Path) -> YMLRefactorResult:
     """Generates a refactored YAML string from a single YAML file
     - moves all the config fields under config
     - moves all the meta fields under config.meta and merges with existing config.meta
     - moves all the unknown fields under config.meta
-    - provide some information if some fields don't exist but are similiar to allowed fields
+    - provide some information if some fields don't exist but are similar to allowed fields
     """
     refactored = False
     refactor_logs = []
     data = load_yaml_check_duplicates(yml_file)
 
-    for model in data.get("models", []):
-        existing_meta = model.get("meta", {}).copy()
-
-        # we can not loop model and modify it at the same time
-        copy_model = model.copy()
-
-        for field in copy_model:
-            if field in allowed_fields:
-                continue
-            if field in allowed_config_fields_except_meta:
+    if "models" in data:
+        for i, model in enumerate(data["models"]):
+            processed_model, model_refactored, model_refactor_logs = restructure_yaml_keys(model)
+            if model_refactored:
                 refactored = True
-                model_config = model.get("config", {})
-                model_config.update({field: model[field]})
-                model["config"] = model_config
-                del model[field]
-            if field not in allowed_config_fields:
-                refactored = True
-                closest_match = difflib.get_close_matches(field, allowed_config_fields, 1)
-                if closest_match and closest_match[0] in allowed_config_fields:
-                    refactor_logs.append(
-                        f"Field '{field}' is not allowed, but '{closest_match[0]}' is. We moved it under config.meta but you might want to rename it and move it under config."
-                    )
-                model_meta = model.get("config", {}).get("meta", {})
-                model_meta.update({field: model[field]})
-                model["config"] = {"meta": model_meta}
-                del model[field]
+                data["models"][i] = processed_model
+                refactor_logs.extend(model_refactor_logs)
 
-        if existing_meta:
-            refactored = True
-            if "config" not in model:
-                model["config"] = {"meta": {}}
-            if "meta" not in model["config"]:
-                model["config"]["meta"] = {}
-            for key, value in existing_meta.items():
-                model["config"]["meta"].update({key: value})
-            del model["meta"]
-
-    return RefactorResult(
+    return YMLRefactorResult(
         file_path=yml_file,
         refactored=refactored,
         refactored_yaml=output_yaml(data),
@@ -220,24 +427,65 @@ def changeset_refactor_yml(yml_file: Path) -> RefactorResult:
     )
 
 
-def changeset_all_yml_files(path: Path) -> list[RefactorResult]:
-    models_path = yaml_file_manager.read_file(path / "dbt_project.yml").get(
-        "model-paths", ["models"]
-    )
+def get_dbt_paths(path: Path) -> Tuple[List[str], List[str]]:
+    """Get model and macro paths from dbt_project.yml
 
-    refactor_results = []
-    for model_path in models_path:
-        yaml_files = set((path / Path(model_path)).resolve().glob("**/*.yml")).union(
-            set((path / Path(model_path)).resolve().glob("**/*.yaml"))
-        )
-        for yml_file in yaml_files:
-            refactor_result = changeset_refactor_yml(yml_file)
-            refactor_results.append(refactor_result)
-    return refactor_results
+    Args:
+        path: Project root path
+
+    Returns:
+        Tuple containing:
+        - List of model paths
+        - List of macro paths
+    """
+    project_config = yaml_file_manager.read_file(path / "dbt_project.yml")
+    model_paths = project_config.get("model-paths", ["models"])
+    macro_paths = project_config.get("macro-paths", ["macros"])
+    return model_paths, macro_paths
 
 
-def apply_changesets(changesets: list[RefactorResult]) -> None:
-    """Apply the changesets to the YAML files"""
-    for changeset in changesets:
-        if changeset.refactored:
-            changeset.update_yaml_file()
+def changeset_all_sql_yml_files(
+    path: Path,
+) -> Tuple[List[YMLRefactorResult], List[SQLRefactorResult]]:
+    """Process all YAML files and SQL files in the project
+
+    Args:
+        path: Project root path
+
+    Returns:
+        Tuple containing:
+        - List of YAML refactor results
+        - List of SQL refactor results
+    """
+    model_paths, macro_paths = get_dbt_paths(path)
+
+    # Process SQL files
+    sql_paths = set(model_paths + macro_paths)
+    sql_results = process_sql_files(path, sql_paths)
+
+    # Process YAML files
+    yaml_results = process_yaml_files(path, model_paths)
+
+    return yaml_results, sql_results
+
+
+def apply_changesets(
+    yaml_results: List[YMLRefactorResult], sql_results: List[SQLRefactorResult]
+) -> None:
+    """Apply both YAML and SQL refactoring changes
+
+    Args:
+        yaml_results: List of YAML refactoring results
+        sql_results: List of SQL refactoring results
+    """
+    # Apply YAML changes
+    for result in yaml_results:
+        if result.refactored:
+            result.update_yaml_file()
+            result.print_to_console()
+
+    # Apply SQL changes
+    for result in sql_results:
+        if result.refactored:
+            result.update_sql_file()
+            result.print_to_console()
