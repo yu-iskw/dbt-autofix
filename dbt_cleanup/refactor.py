@@ -1,4 +1,5 @@
 import difflib
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Dict, List, Set, Tuple
 from dbt_meshify.storage.file_manager import DbtYAML, YAMLFileManager
 from rich.console import Console
 from ruamel.yaml.constructor import DuplicateKeyError
+from yaml import safe_load
 
 console = Console()
 
@@ -22,6 +24,12 @@ def output_yaml(content: Dict) -> str:
 
 
 def load_yaml_check_duplicates(yml_file: Path) -> str:
+    bypass_error_for_test = (os.getenv("DBT_CLEANUP_BYPASS_ERROR_FOR_TEST") or "0").lower() in [
+        "true",
+        "1",
+        "yes",
+        "y",
+    ]
     try:
         data = yaml_file_manager.read_file(yml_file)
     except DuplicateKeyError:
@@ -29,8 +37,12 @@ def load_yaml_check_duplicates(yml_file: Path) -> str:
             f"There are duplicate keys in {yml_file.absolute()}\nTo identify all of those, run the 'duplicates' command.\nMake sure to fix those before re-running the refactor command.",
             style="bold red",
         )
+        if bypass_error_for_test:
+            return {}
         exit(1)
     except Exception as e:
+        if bypass_error_for_test:
+            return {}
         console.print(f"Error loading {yml_file.absolute()}: {e}", style="bold red")
         exit(1)
     return data or {}
@@ -144,6 +156,7 @@ allowed_fields = [
     "access",
     "config",
     "constraints",
+    "data_tests",
     "tests",
     "columns",
     "time_spine",
@@ -441,7 +454,9 @@ def get_dbt_paths(path: Path) -> Tuple[List[str], List[str]]:
         - List of model paths
         - List of macro paths
     """
-    project_config = yaml_file_manager.read_file(path / "dbt_project.yml")
+
+    with open(path / "dbt_project.yml", "r") as f:
+        project_config = safe_load(f)
     model_paths = project_config.get("model-paths", ["models"])
     macro_paths = project_config.get("macro-paths", ["macros"])
     return model_paths, macro_paths
