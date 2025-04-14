@@ -223,11 +223,11 @@ def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:
         - List of removal messages
     """
     # Regex patterns for Jinja tag matching
-    JINJA_TAG_PATTERN = re.compile(r"{%-?\s*(.*?)\s*-?%}", re.DOTALL)
-    MACRO_START = re.compile(r"macro\s+([^\s(]+)")  # Captures macro name
-    IF_START = re.compile(r"if[(\s]+.*")  # if blocks can also be {% if(...) %}
-    MACRO_END = re.compile(r"endmacro")
-    IF_END = re.compile(r"endif")
+    JINJA_TAG_PATTERN = re.compile(r"{%-?\s*((?s:.*?))\s*-?%}", re.DOTALL)
+    MACRO_START = re.compile(r"^macro\s+([^\s(]+)")  # Captures macro name
+    IF_START = re.compile(r"^if[(\s]+.*")  # if blocks can also be {% if(...) %}
+    MACRO_END = re.compile(r"^endmacro")
+    IF_END = re.compile(r"^endif")
 
     logs = []
     # Track macro and if states with their positions
@@ -374,13 +374,24 @@ def restructure_yaml_keys(model: Dict) -> Tuple[Dict, bool, List[str]]:
     for field in copy_model:
         if field in allowed_fields:
             continue
+
         if field in allowed_config_fields_except_meta:
             refactored = True
             model_config = model.get("config", {})
-            model_config.update({field: model[field]})
-            refactor_logs.append(f"Field '{field}' would be moved under config.")
-            model["config"] = model_config
+
+            # if the field is not under config, move it under config
+            if field not in model_config:
+                model_config.update({field: model[field]})
+                refactor_logs.append(f"Field '{field}' would be moved under config.")
+                model["config"] = model_config
+
+            # if the field is already under config, it will take precedence there, so we remove it from the top level
+            else:
+                refactor_logs.append(
+                    f"Field '{field}' is already under config, it has been removed from the top level."
+                )
             del model[field]
+
         if field not in allowed_config_fields:
             refactored = True
             closest_match = difflib.get_close_matches(
