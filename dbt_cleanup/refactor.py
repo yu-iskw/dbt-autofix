@@ -374,13 +374,24 @@ def restructure_yaml_keys(model: Dict) -> Tuple[Dict, bool, List[str]]:
     for field in copy_model:
         if field in allowed_fields:
             continue
+
         if field in allowed_config_fields_except_meta:
             refactored = True
             model_config = model.get("config", {})
-            model_config.update({field: model[field]})
-            refactor_logs.append(f"Field '{field}' would be moved under config.")
-            model["config"] = model_config
+
+            # if the field is not under config, move it under config
+            if field not in model_config:
+                model_config.update({field: model[field]})
+                refactor_logs.append(f"Field '{field}' would be moved under config.")
+                model["config"] = model_config
+
+            # if the field is already under config, it will take precedence there, so we remove it from the top level
+            else:
+                refactor_logs.append(
+                    f"Field '{field}' is already under config, it has been removed from the top level."
+                )
             del model[field]
+
         if field not in allowed_config_fields:
             refactored = True
             closest_match = difflib.get_close_matches(
