@@ -158,6 +158,18 @@ class TestUnmatchedEndingsRemoval:
         assert "{% endif %}" in result
         assert len(logs) == 0
 
+    def test_matched_if_with_macro_in_name(self):
+        sql_content = """
+        {% if(macro_test) %}
+        select *
+        from my_table
+        {% endif %}
+        """
+        result, logs = remove_unmatched_endings(sql_content)
+        assert "if(macro_test)" in result
+        assert "{% endif %}" in result
+        assert len(logs) == 0
+
     def test_nested_structures(self):
         sql_content = """
         {% macro outer_macro() %}

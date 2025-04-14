@@ -223,11 +223,11 @@ def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:
         - List of removal messages
     """
     # Regex patterns for Jinja tag matching
-    JINJA_TAG_PATTERN = re.compile(r"{%-?\s*(.*?)\s*-?%}", re.DOTALL)
-    MACRO_START = re.compile(r"macro\s+([^\s(]+)")  # Captures macro name
-    IF_START = re.compile(r"if[(\s]+.*")  # if blocks can also be {% if(...) %}
-    MACRO_END = re.compile(r"endmacro")
-    IF_END = re.compile(r"endif")
+    JINJA_TAG_PATTERN = re.compile(r"{%-?\s*((?s:.*?))\s*-?%}", re.DOTALL)
+    MACRO_START = re.compile(r"^macro\s+([^\s(]+)")  # Captures macro name
+    IF_START = re.compile(r"^if[(\s]+.*")  # if blocks can also be {% if(...) %}
+    MACRO_END = re.compile(r"^endmacro")
+    IF_END = re.compile(r"^endif")
 
     logs = []
     # Track macro and if states with their positions
