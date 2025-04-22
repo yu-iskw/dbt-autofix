@@ -7,10 +7,10 @@ from yaml import safe_load
 from dbt_cleanup.refactor import (
     SQLRefactorResult,
     YMLRefactorResult,
+    YMLRuleRefactorResult,
     changeset_all_sql_yml_files,
-    changeset_refactor_yml,
-    load_yaml_check_duplicates,
-    output_yaml,
+    changeset_refactor_yml_str,
+    dict_to_yaml_str,
     remove_unmatched_endings,
 )
 
@@ -363,18 +363,6 @@ class TestUnmatchedEndingsRemoval:
 class TestYamlRefactoring:
     """Tests for YAML refactoring functions"""
 
-    def test_changeset_refactor_yml_with_duplicates(
-        self, temp_project_dir, schema_yml_with_duplicates
-    ):
-        # Create a test YAML file
-        yml_file = temp_project_dir / "models" / "schema.yml"
-        yml_file.parent.mkdir(parents=True, exist_ok=True)
-        yml_file.write_text(schema_yml_with_duplicates)
-
-        # Test that loading a file with duplicates exits the program
-        with pytest.raises(SystemExit):
-            load_yaml_check_duplicates(yml_file)
-
     def test_changeset_refactor_yml_with_config_fields(
         self, temp_project_dir, schema_yml_with_config_fields
     ):
@@ -382,13 +370,14 @@ class TestYamlRefactoring:
         yml_file = temp_project_dir / "models" / "schema.yml"
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(schema_yml_with_config_fields)
+        yml_str = yml_file.read_text()
 
         # Get the refactored result
-        result = changeset_refactor_yml(yml_file)
+        result = changeset_refactor_yml_str(yml_str)
 
         # Check that the file was refactored
         assert result.refactored
-        assert isinstance(result, YMLRefactorResult)
+        assert isinstance(result, YMLRuleRefactorResult)
 
         # Check that config fields were moved under config
         model = safe_load(result.refactored_yaml)["models"][0]
@@ -443,11 +432,12 @@ class TestYamlRefactoring:
         yml_file.write_text(schema_yml_with_fields_top_and_under_config)
 
         # Get the refactored result
-        result = changeset_refactor_yml(yml_file)
+        yml_str = yml_file.read_text()
+        result = changeset_refactor_yml_str(yml_str)
 
         # Check that the file was refactored
         assert result.refactored
-        assert isinstance(result, YMLRefactorResult)
+        assert isinstance(result, YMLRuleRefactorResult)
 
         # Check that config fields were moved under config
         model = safe_load(result.refactored_yaml)["models"][0]
@@ -464,11 +454,12 @@ class TestYamlRefactoring:
         yml_file.write_text(schema_yml_with_close_matches)
 
         # Get the refactored result
-        result = changeset_refactor_yml(yml_file)
+        yml_str = yml_file.read_text()
+        result = changeset_refactor_yml_str(yml_str)
 
         # Check that the file was refactored
         assert result.refactored
-        assert isinstance(result, YMLRefactorResult)
+        assert isinstance(result, YMLRuleRefactorResult)
 
         # Check that fields were moved under config.meta
         model = safe_load(result.refactored_yaml)["models"][0]
@@ -509,7 +500,7 @@ class TestYamlOutput:
             ],
         }
 
-        yaml_str = output_yaml(test_data)
+        yaml_str = dict_to_yaml_str(test_data)
         assert "version: 2" in yaml_str
         assert "name: test_model" in yaml_str
         assert "materialized: table" in yaml_str

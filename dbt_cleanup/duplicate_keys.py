@@ -7,6 +7,8 @@ import yamllint.config
 import yamllint.linter
 from rich.console import Console
 
+from dbt_cleanup.refactor import DbtYAML
+
 console = Console()
 
 config = """
@@ -30,6 +32,7 @@ class DuplicateFound:
 
 def find_duplicate_keys(
     root_dir: Path,
+    dry_run: bool = False,
 ) -> Tuple[List[DuplicateFound], List[DuplicateFound]]:
     """
     Find duplicate keys in the project and packages.
@@ -62,9 +65,11 @@ def find_duplicate_keys(
 
     # Check project YML files
     for file in yml_files_not_target_or_packages:
+        file_with_duplicate = False
         file_content = file.read_text()
         for p in yamllint.linter.run(file_content, yaml_config):
             if p.rule == "key-duplicates":
+                file_with_duplicate = True
                 project_duplicates.append(
                     DuplicateFound(
                         file=file,
@@ -75,6 +80,10 @@ def find_duplicate_keys(
                         value=p.desc,
                     )
                 )
+        if file_with_duplicate and not dry_run:
+            without_duplicates = yaml.safe_load(file_content)
+            ruamel_yaml = DbtYAML()
+            ruamel_yaml.dump_to_string(without_duplicates)
 
     # Check package YML files
     for file in yml_files_packages_not_integration_tests:

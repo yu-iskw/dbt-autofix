@@ -2,10 +2,14 @@ from pathlib import Path
 
 import typer
 from rich import print
+from rich.console import Console
 from typing_extensions import Annotated
 
 from dbt_cleanup.duplicate_keys import find_duplicate_keys, print_duplicate_keys
 from dbt_cleanup.refactor import apply_changesets, changeset_all_sql_yml_files
+
+console = Console()
+error_console = Console(stderr=True)
 
 app = typer.Typer(
     help="A tool to help clean up dbt projects",
@@ -33,19 +37,23 @@ def refactor_yml(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", "-d", help="In dry run mode, do not apply changes")
     ] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help="Output in JSON format")
+    ] = False,
 ):
-    changesets = changeset_all_sql_yml_files(path)
+    changesets = changeset_all_sql_yml_files(path, dry_run)
     yaml_results, sql_results = changesets
     if dry_run:
-        print("[red]-- Dry run mode, not applying changes --[/red]")
+        if not json_output:
+            error_console.print("[red]-- Dry run mode, not applying changes --[/red]")
         for changeset in yaml_results:
             if changeset.refactored:
-                changeset.print_to_console(dry_run)
+                changeset.print_to_console(json_output)
         for changeset in sql_results:
             if changeset.refactored:
-                changeset.print_to_console(dry_run)
+                changeset.print_to_console(json_output)
     else:
-        apply_changesets(yaml_results, sql_results)
+        apply_changesets(yaml_results, sql_results, json_output)
 
 
 if __name__ == "__main__":

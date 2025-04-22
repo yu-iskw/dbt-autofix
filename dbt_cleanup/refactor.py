@@ -1,51 +1,59 @@
 import difflib
-import os
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
-from dbt_meshify.storage.file_manager import DbtYAML, YAMLFileManager
+import yaml
+import yamllint.config
+import yamllint.linter
 from rich.console import Console
-from ruamel.yaml.constructor import DuplicateKeyError
+from ruamel.yaml import YAML
+from ruamel.yaml.compat import StringIO
 from yaml import safe_load
 
 console = Console()
+error_console = Console(stderr=True)
 
-yaml_file_manager = YAMLFileManager()
+config = """
+rules:
+  key-duplicates: enable
+"""
+
+yaml_config = yamllint.config.YamlLintConfig(config)
 
 
-def output_yaml(content: Dict) -> str:
+class DbtYAML(YAML):
+    """dbt-compatible YAML class."""
+
+    def __init__(self):
+        super().__init__(typ=["rt", "string"])
+        self.preserve_quotes = True
+        self.width = 4096
+        self.indent(mapping=2, sequence=4, offset=2)
+        self.default_flow_style = False
+
+    def dump(self, data, stream=None, **kw):
+        inefficient = False
+        if stream is None:
+            inefficient = True
+            stream = StringIO()
+        super().dump(data, stream, **kw)
+        if inefficient:
+            return stream.getvalue()
+
+
+def read_file(path: Path) -> Dict:
+    yaml = DbtYAML()
+    return yaml.load(path)
+
+
+def dict_to_yaml_str(content: Dict) -> str:
     """Write a dict value to a YAML string"""
     yaml = DbtYAML()
-    clean_content = YAMLFileManager._clean_content(content)
-    file_text = yaml.dump(clean_content)
+    file_text = yaml.dump_to_string(content)
     return file_text
-
-
-def load_yaml_check_duplicates(yml_file: Path) -> str:
-    bypass_error_for_test = (os.getenv("DBT_CLEANUP_BYPASS_ERROR_FOR_TEST") or "0").lower() in [
-        "true",
-        "1",
-        "yes",
-        "y",
-    ]
-    try:
-        data = yaml_file_manager.read_file(yml_file)
-    except DuplicateKeyError:
-        console.print(
-            f"There are duplicate keys in {yml_file.absolute()}\nTo identify all of those, run the 'duplicates' command.\nMake sure to fix those before re-running the refactor command.",
-            style="bold red",
-        )
-        if bypass_error_for_test:
-            return {}
-        exit(1)
-    except Exception as e:
-        if bypass_error_for_test:
-            return {}
-        console.print(f"Error loading {yml_file.absolute()}: {e}", style="bold red")
-        exit(1)
-    return data or {}
 
 
 allowed_config_fields = set(
@@ -154,6 +162,7 @@ allowed_fields = [
     "latest_version",
     "deprecation_date",
     "access",
+    "group",
     "config",
     "constraints",
     "data_tests",
@@ -165,45 +174,95 @@ allowed_fields = [
 
 
 @dataclass
-class YMLRefactorResult:
-    file_path: Path
+class YMLRuleRefactorResult:
+    rule_name: str
     refactored: bool
     refactored_yaml: str
     original_yaml: str
     refactor_logs: list[str]
 
+
+@dataclass
+class YMLRefactorResult:
+    dry_run: bool
+    file_path: Path
+    refactored: bool
+    refactored_yaml: str
+    original_yaml: str
+    refactors: list[YMLRuleRefactorResult]
+
     def update_yaml_file(self) -> None:
         """Update the YAML file with the refactored content"""
         Path(self.file_path).write_text(self.refactored_yaml)
 
-    def print_to_console(self, dry_run: bool = False):
+    def print_to_console(self, json_output: bool = True):
+        if not self.refactored:
+            return
+
+        if json_output:
+            to_print = {
+                "mode": "dry_run" if self.dry_run else "applied",
+                "file_path": str(self.file_path),
+                "refactors": list(
+                    set([refactor.rule_name for refactor in self.refactors if refactor.refactored])
+                ),
+            }
+            console.print(json.dumps(to_print))
+            return
+
         console.print(
-            f"\n{'DRY RUN - NOT APPLIED: ' if dry_run else ''}Refactored {self.file_path}:",
+            f"\n{'DRY RUN - NOT APPLIED: ' if self.dry_run else ''}Refactored {self.file_path}:",
             style="green",
         )
-        for log in self.refactor_logs:
-            console.print(f"  {log}", style="yellow")
+        for refactor in self.refactors:
+            if refactor.refactored:
+                console.print(f"  {refactor.rule_name}", style="yellow")
 
 
 @dataclass
-class SQLRefactorResult:
-    file_path: Path
+class SQLRuleRefactorResult:
+    rule_name: str
     refactored: bool
     refactored_content: str
     original_content: str
     refactor_logs: list[str]
 
+
+@dataclass
+class SQLRefactorResult:
+    dry_run: bool
+    file_path: Path
+    refactored: bool
+    refactored_content: str
+    original_content: str
+    refactors: list[SQLRuleRefactorResult]
+
     def update_sql_file(self) -> None:
         """Update the SQL file with the refactored content"""
         Path(self.file_path).write_text(self.refactored_content)
 
-    def print_to_console(self, dry_run: bool = False):
+    def print_to_console(self, json_output: bool = True):
+        if not self.refactored:
+            return
+
+        if json_output:
+            to_print = {
+                "mode": "dry_run" if self.dry_run else "applied",
+                "file_path": str(self.file_path),
+                "refactors": list(
+                    set([refactor.rule_name for refactor in self.refactors if refactor.refactored])
+                ),
+            }
+            console.print(json.dumps(to_print))
+            return
+
         console.print(
-            f"\n{'DRY RUN - NOT APPLIED: ' if dry_run else ''}Refactored {self.file_path}:",
+            f"\n{'DRY RUN - NOT APPLIED: ' if self.dry_run else ''}Refactored {self.file_path}:",
             style="green",
         )
-        for log in self.refactor_logs:
-            console.print(f"  {log}", style="yellow")
+        for refactor in self.refactors:
+            if refactor.refactored:
+                console.print(f"  {refactor.rule_name}", style="yellow")
 
 
 def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:
@@ -294,25 +353,57 @@ def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:
     return result, logs
 
 
-def process_yaml_files(path: Path, model_paths: List[str]) -> List[YMLRefactorResult]:
+def process_yaml_files(
+    path: Path, model_paths: List[str], dry_run: bool = False
+) -> List[YMLRefactorResult]:
     """Process all YAML files in the project
 
     Args:
         path: Project root path
     """
-    yaml_results = []
+    yaml_results: List[YMLRefactorResult] = []
+
     for model_path in model_paths:
         yaml_files = set((path / Path(model_path)).resolve().glob("**/*.yml")).union(
             set((path / Path(model_path)).resolve().glob("**/*.yaml"))
         )
         for yml_file in yaml_files:
-            refactor_result = changeset_refactor_yml(yml_file)
-            yaml_results.append(refactor_result)
+            yml_str = yml_file.read_text()
+            yml_refactor_result = YMLRefactorResult(
+                dry_run=dry_run,
+                file_path=yml_file,
+                refactored=False,
+                refactored_yaml=yml_str,
+                original_yaml=yml_str,
+                refactors=[],
+            )
+
+            changeset_remove_duplicate_keys_result = changeset_remove_duplicate_keys(
+                yml_refactor_result.refactored_yaml
+            )
+            yml_refactor_result.refactors.append(changeset_remove_duplicate_keys_result)
+            if changeset_remove_duplicate_keys_result.refactored:
+                yml_refactor_result.refactored = True
+                yml_refactor_result.refactored_yaml = (
+                    changeset_remove_duplicate_keys_result.refactored_yaml
+                )
+
+            changeset_refactor_result = changeset_refactor_yml_str(
+                yml_refactor_result.refactored_yaml
+            )
+            yml_refactor_result.refactors.append(changeset_refactor_result)
+            if changeset_refactor_result.refactored:
+                yml_refactor_result.refactored = True
+                yml_refactor_result.refactored_yaml = changeset_refactor_result.refactored_yaml
+
+            yaml_results.append(yml_refactor_result)
 
     return yaml_results
 
 
-def process_sql_files(path: Path, sql_paths: Set[str]) -> List[SQLRefactorResult]:
+def process_sql_files(
+    path: Path, sql_paths: Set[str], dry_run: bool = False
+) -> List[SQLRefactorResult]:
     """Process all SQL files in the given paths for unmatched endings.
 
     Args:
@@ -327,7 +418,7 @@ def process_sql_files(path: Path, sql_paths: Set[str]) -> List[SQLRefactorResult
     for sql_path in sql_paths:
         full_path = (path / sql_path).resolve()
         if not full_path.exists():
-            console.print(f"Warning: Path {full_path} does not exist", style="yellow")
+            error_console.print(f"Warning: Path {full_path} does not exist", style="yellow")
             continue
 
         sql_files = full_path.glob("**/*.sql")
@@ -338,20 +429,29 @@ def process_sql_files(path: Path, sql_paths: Set[str]) -> List[SQLRefactorResult
 
                 results.append(
                     SQLRefactorResult(
+                        dry_run=dry_run,
                         file_path=sql_file,
                         refactored=new_content != content,
                         refactored_content=new_content,
                         original_content=content,
-                        refactor_logs=logs,
+                        refactors=[
+                            SQLRuleRefactorResult(
+                                rule_name="remove_unmatched_endings",
+                                refactored=new_content != content,
+                                refactored_content=new_content,
+                                original_content=content,
+                                refactor_logs=logs,
+                            )
+                        ],
                     )
                 )
             except Exception as e:
-                console.print(f"Error processing {sql_file}: {e}", style="bold red")
+                error_console.print(f"Error processing {sql_file}: {e}", style="bold red")
 
     return results
 
 
-def restructure_yaml_keys(model: Dict) -> Tuple[Dict, bool, List[str]]:
+def restructure_yaml_keys_for_model(model: Dict) -> Tuple[Dict, bool, List[str]]:
     """Restructure YAML keys according to dbt conventions.
 
     Args:
@@ -426,7 +526,7 @@ def restructure_yaml_keys(model: Dict) -> Tuple[Dict, bool, List[str]]:
     return model, refactored, refactor_logs
 
 
-def changeset_refactor_yml(yml_file: Path) -> YMLRefactorResult:
+def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
     """Generates a refactored YAML string from a single YAML file
     - moves all the config fields under config
     - moves all the meta fields under config.meta and merges with existing config.meta
@@ -435,46 +535,74 @@ def changeset_refactor_yml(yml_file: Path) -> YMLRefactorResult:
     """
     refactored = False
     refactor_logs = []
-    data = load_yaml_check_duplicates(yml_file)
+    yml_dict = DbtYAML().load(yml_str) or {}
 
-    if "models" in data:
-        for i, model in enumerate(data["models"]):
-            processed_model, model_refactored, model_refactor_logs = restructure_yaml_keys(model)
+    if "models" in yml_dict:
+        for i, model in enumerate(yml_dict["models"]):
+            processed_model, model_refactored, model_refactor_logs = (
+                restructure_yaml_keys_for_model(model)
+            )
             if model_refactored:
                 refactored = True
-                data["models"][i] = processed_model
+                yml_dict["models"][i] = processed_model
                 refactor_logs.extend(model_refactor_logs)
 
-    return YMLRefactorResult(
-        file_path=yml_file,
+    return YMLRuleRefactorResult(
+        rule_name="restructure_yaml_keys",
         refactored=refactored,
-        refactored_yaml=output_yaml(data),
-        original_yaml=output_yaml(data),
+        refactored_yaml=dict_to_yaml_str(yml_dict) if refactored else yml_str,
+        original_yaml=yml_str,
         refactor_logs=refactor_logs,
     )
 
 
-def get_dbt_paths(path: Path) -> Tuple[List[str], List[str]]:
+def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
+    """Removes duplicate keys in the YAML files, keeping the first occurence only
+    The drawback of keeping the first occurence is that we need to use PyYAML and then lose all the comments that were in the file
+    """
+    refactored = False
+    refactor_logs = []
+
+    for p in yamllint.linter.run(yml_str, yaml_config):
+        if p.rule == "key-duplicates":
+            refactored = True
+            refactor_logs.append(f"Found duplicate keys: {p.line} - {p.desc}")
+
+    return YMLRuleRefactorResult(
+        rule_name="remove_duplicate_keys",
+        refactored=refactored,
+        refactored_yaml=DbtYAML().dump_to_string(yaml.safe_load(yml_str))
+        if refactored
+        else yml_str,
+        original_yaml=yml_str,
+        refactor_logs=refactor_logs,
+    )
+
+
+def get_dbt_paths(path: Path) -> List[str]:
     """Get model and macro paths from dbt_project.yml
 
     Args:
         path: Project root path
 
     Returns:
-        Tuple containing:
-        - List of model paths
-        - List of macro paths
+        A list of paths to the models, macros, tests, analyses, and snapshots
     """
 
     with open(path / "dbt_project.yml", "r") as f:
         project_config = safe_load(f)
     model_paths = project_config.get("model-paths", ["models"])
     macro_paths = project_config.get("macro-paths", ["macros"])
-    return model_paths, macro_paths
+    test_paths = project_config.get("test-paths", ["tests"])
+    analysis_paths = project_config.get("analysis-paths", ["analyses"])
+    snapshot_paths = project_config.get("snapshot-paths", ["snapshots"])
+
+    return list(set(model_paths + macro_paths + test_paths + analysis_paths + snapshot_paths))
 
 
 def changeset_all_sql_yml_files(
     path: Path,
+    dry_run: bool = False,
 ) -> Tuple[List[YMLRefactorResult], List[SQLRefactorResult]]:
     """Process all YAML files and SQL files in the project
 
@@ -486,20 +614,20 @@ def changeset_all_sql_yml_files(
         - List of YAML refactor results
         - List of SQL refactor results
     """
-    model_paths, macro_paths = get_dbt_paths(path)
+    dbt_paths = get_dbt_paths(path)
 
-    # Process SQL files
-    sql_paths = set(model_paths + macro_paths)
-    sql_results = process_sql_files(path, sql_paths)
+    sql_results = process_sql_files(path, dbt_paths, dry_run)
 
     # Process YAML files
-    yaml_results = process_yaml_files(path, model_paths)
+    yaml_results = process_yaml_files(path, dbt_paths, dry_run)
 
     return yaml_results, sql_results
 
 
 def apply_changesets(
-    yaml_results: List[YMLRefactorResult], sql_results: List[SQLRefactorResult]
+    yaml_results: List[YMLRefactorResult],
+    sql_results: List[SQLRefactorResult],
+    json_output: bool = False,
 ) -> None:
     """Apply both YAML and SQL refactoring changes
 
@@ -508,13 +636,13 @@ def apply_changesets(
         sql_results: List of SQL refactoring results
     """
     # Apply YAML changes
-    for result in yaml_results:
-        if result.refactored:
-            result.update_yaml_file()
-            result.print_to_console()
+    for yaml_result in yaml_results:
+        if yaml_result.refactored:
+            yaml_result.update_yaml_file()
+            yaml_result.print_to_console(json_output)
 
     # Apply SQL changes
-    for result in sql_results:
-        if result.refactored:
-            result.update_sql_file()
-            result.print_to_console()
+    for sql_result in sql_results:
+        if sql_result.refactored:
+            sql_result.update_sql_file()
+            sql_result.print_to_console(json_output)
