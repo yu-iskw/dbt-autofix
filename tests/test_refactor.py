@@ -9,8 +9,10 @@ from dbt_cleanup.refactor import (
     YMLRefactorResult,
     YMLRuleRefactorResult,
     changeset_all_sql_yml_files,
+    changeset_dbt_project_remove_deprecated_config,
     changeset_refactor_yml_str,
     dict_to_yaml_str,
+    rec_check_yaml_path,
     remove_unmatched_endings,
 )
 
@@ -416,7 +418,7 @@ class TestYamlRefactoring:
         yaml_results, sql_results = results
         assert all(isinstance(r, YMLRefactorResult) for r in yaml_results)
         assert all(isinstance(r, SQLRefactorResult) for r in sql_results)
-        assert all(r.refactored for r in yaml_results)
+        assert all(r.refactored for r in yaml_results if r.file_path.name != "dbt_project.yml")
 
         # Check that both files were processed
         processed_files = {r.file_path for r in yaml_results}
@@ -505,3 +507,118 @@ class TestYamlOutput:
         assert "name: test_model" in yaml_str
         assert "materialized: table" in yaml_str
         assert "abc: 123" in yaml_str
+
+
+class TestDbtProjectYAMLPusPrefix:
+    """Tests for YAML output functions"""
+
+    def test_check_project(self, temp_project_dir):
+        # Test that output_yaml produces valid YAML
+
+        test_data = {"models": {"materialized": "table", "not_a_config": {"materialized": "view"}}}
+        expected_data = {
+            "models": {"+materialized": "table", "not_a_config": {"+materialized": "view"}}
+        }
+
+        new_file = temp_project_dir / "models" / "not_a_config" / "my_model.sql"
+        new_file.parent.mkdir(parents=True, exist_ok=True)
+        new_file.write_text("select 1 as id")
+
+        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir)
+        assert expected_data == new_yml
+        assert len(refactor_logs) == 2
+
+    def test_check_project_existing_config_and_folder(self, temp_project_dir):
+        # Test that output_yaml produces valid YAML
+
+        test_data = {"models": {"materialized": "table", "grants": {"materialized": "view"}}}
+        expected_data = {"models": {"+materialized": "table", "grants": {"+materialized": "view"}}}
+
+        new_file = temp_project_dir / "models" / "grants" / "my_model.sql"
+        new_file.parent.mkdir(parents=True, exist_ok=True)
+        new_file.write_text("select 1 as id")
+
+        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir)
+        assert expected_data == new_yml
+        assert len(refactor_logs) == 2
+
+    def test_check_project_existing_config_not_folder(self, temp_project_dir):
+        # Test that output_yaml produces valid YAML
+
+        test_data = {"models": {"materialized": "table", "grants": {"materialized": "view"}}}
+        expected_data = {"models": {"+materialized": "table", "+grants": {"materialized": "view"}}}
+
+        new_file = temp_project_dir / "models" / "not_grants" / "my_model.sql"
+        new_file.parent.mkdir(parents=True, exist_ok=True)
+        new_file.write_text("select 1 as id")
+
+        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir)
+        assert expected_data == new_yml
+        assert len(refactor_logs) == 2
+
+    def test_check_project_no_change(self, temp_project_dir):
+        # Test that output_yaml produces valid YAML
+
+        test_data = {"models": {"+materialized": "table", "folder": {"+materialized": "view"}}}
+        expected_data = {"models": {"+materialized": "table", "folder": {"+materialized": "view"}}}
+
+        new_file = temp_project_dir / "models" / "folder" / "my_model.sql"
+        new_file.parent.mkdir(parents=True, exist_ok=True)
+        new_file.write_text("select 1 as id")
+
+        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir)
+        assert expected_data == new_yml
+        assert len(refactor_logs) == 0
+
+
+class TestDbtProjectRemoveDeprecated:
+    """Tests for YAML output functions"""
+
+    def test_remove_deprecated_config(self):
+        input_str = """
+name: 'jaffle_shop'
+version: '1.0'
+require-dbt-version: ">=1.6.0"
+config-version: 2
+
+dbt-cloud:
+  project-id: 12345
+  defer-env-id: 12345
+
+log-path: ["other-directory"]
+model-paths: ["models"]
+analysis-paths: ["analysis"]
+target-path: "target"
+clean-targets: ["target", "dbt_modules", "dbt_packages"]
+test-paths: ["tests"]
+seed-paths: ["data"] # here is a comment
+macro-paths: ["macros"]
+# this is a comment
+asset-paths: ["assets"]
+
+profile: garage-jaffle
+"""
+
+        expected_str = """
+name: 'jaffle_shop'
+version: '1.0'
+require-dbt-version: ">=1.6.0"
+config-version: 2
+
+dbt-cloud:
+  project-id: 12345
+  defer-env-id: 12345
+
+model-paths: ["models"]
+analysis-paths: ["analysis"]
+clean-targets: ["target", "dbt_modules", "dbt_packages"]
+test-paths: ["tests"]
+seed-paths: ["data"] # here is a comment
+macro-paths: ["macros"]
+# this is a comment
+asset-paths: ["assets"]
+
+profile: garage-jaffle
+"""
+        result = changeset_dbt_project_remove_deprecated_config(input_str)
+        assert result.refactored_yaml.strip() == expected_str.strip()

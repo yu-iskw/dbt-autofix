@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
-import yaml
 import yamllint.config
 import yamllint.linter
 from rich.console import Console
@@ -63,6 +62,7 @@ allowed_config_fields = set(
         "sql_header",
         "on_configuration_change",
         "unique_key",
+        "incremental_strategy",  # was missing at first
         "batch_size",
         "begin",
         "lookback",
@@ -355,7 +355,7 @@ def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:
     return result, logs
 
 
-def process_yaml_files(
+def process_yaml_files_except_dbt_project(
     path: Path, model_paths: List[str], dry_run: bool = False
 ) -> List[YMLRefactorResult]:
     """Process all YAML files in the project
@@ -383,8 +383,8 @@ def process_yaml_files(
             changeset_remove_duplicate_keys_result = changeset_remove_duplicate_keys(
                 yml_refactor_result.refactored_yaml
             )
-            yml_refactor_result.refactors.append(changeset_remove_duplicate_keys_result)
             if changeset_remove_duplicate_keys_result.refactored:
+                yml_refactor_result.refactors.append(changeset_remove_duplicate_keys_result)
                 yml_refactor_result.refactored = True
                 yml_refactor_result.refactored_yaml = (
                     changeset_remove_duplicate_keys_result.refactored_yaml
@@ -393,14 +393,60 @@ def process_yaml_files(
             changeset_refactor_result = changeset_refactor_yml_str(
                 yml_refactor_result.refactored_yaml
             )
-            yml_refactor_result.refactors.append(changeset_refactor_result)
             if changeset_refactor_result.refactored:
+                yml_refactor_result.refactors.append(changeset_refactor_result)
                 yml_refactor_result.refactored = True
                 yml_refactor_result.refactored_yaml = changeset_refactor_result.refactored_yaml
 
             yaml_results.append(yml_refactor_result)
 
     return yaml_results
+
+
+def process_dbt_project_yml(path: Path, dry_run: bool = False) -> YMLRefactorResult:
+    """Process dbt_project.yml"""
+    yml_str = (path / "dbt_project.yml").read_text()
+    yml_refactor_result = YMLRefactorResult(
+        dry_run=dry_run,
+        file_path=path / "dbt_project.yml",
+        refactored=False,
+        refactored_yaml=yml_str,
+        original_yaml=yml_str,
+        refactors=[],
+    )
+
+    # TODO: refactor to be more DRY
+    changeset_remove_duplicate_keys_result = changeset_remove_duplicate_keys(
+        yml_refactor_result.refactored_yaml
+    )
+    if changeset_remove_duplicate_keys_result.refactored:
+        yml_refactor_result.refactors.append(changeset_remove_duplicate_keys_result)
+        yml_refactor_result.refactored = True
+        yml_refactor_result.refactored_yaml = changeset_remove_duplicate_keys_result.refactored_yaml
+
+    changeset_dbt_project_remove_deprecated_config_result = (
+        changeset_dbt_project_remove_deprecated_config(
+            yml_refactor_result.refactored_yaml,
+        )
+    )
+    if changeset_dbt_project_remove_deprecated_config_result.refactored:
+        yml_refactor_result.refactors.append(changeset_dbt_project_remove_deprecated_config_result)
+        yml_refactor_result.refactored = True
+        yml_refactor_result.refactored_yaml = (
+            changeset_dbt_project_remove_deprecated_config_result.refactored_yaml
+        )
+
+    changeset_dbt_project_prefix_plus_for_config_result = (
+        changeset_dbt_project_prefix_plus_for_config(yml_refactor_result.refactored_yaml, path)
+    )
+    if changeset_dbt_project_prefix_plus_for_config_result.refactored:
+        yml_refactor_result.refactors.append(changeset_dbt_project_prefix_plus_for_config_result)
+        yml_refactor_result.refactored = True
+        yml_refactor_result.refactored_yaml = (
+            changeset_dbt_project_prefix_plus_for_config_result.refactored_yaml
+        )
+
+    return yml_refactor_result
 
 
 def process_sql_files(
@@ -570,14 +616,110 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
             refactored = True
             refactor_logs.append(f"Found duplicate keys: {p.line} - {p.desc}")
 
+    if refactored:
+        import yaml
+
+        # we use dump from ruamel to keep indentation style but this loses quite a bit of formatting though
+        refactored_yaml = DbtYAML().dump_to_string(yaml.safe_load(yml_str))
+    else:
+        refactored_yaml = yml_str
+
     return YMLRuleRefactorResult(
         rule_name="remove_duplicate_keys",
         refactored=refactored,
-        refactored_yaml=DbtYAML().dump_to_string(yaml.safe_load(yml_str))
-        if refactored
-        else yml_str,
+        refactored_yaml=refactored_yaml,
         original_yaml=yml_str,
         refactor_logs=refactor_logs,
+    )
+
+
+def changeset_dbt_project_remove_deprecated_config(yml_str: str) -> YMLRuleRefactorResult:
+    """Remove deprecated keys"""
+    refactored = False
+    refactor_logs = []
+
+    set_deprecated_fields = {
+        "log-path",
+        "target-path",
+    }
+    yml_dict = DbtYAML().load(yml_str) or {}
+
+    for deprecated_field in set_deprecated_fields:
+        if deprecated_field in yml_dict:
+            refactored = True
+            refactor_logs.append(f"Removed the deprecated field '{deprecated_field}'")
+            del yml_dict[deprecated_field]
+
+    return YMLRuleRefactorResult(
+        rule_name="remove_deprecated_config",
+        refactored=refactored,
+        refactored_yaml=DbtYAML().dump_to_string(yml_dict) if refactored else yml_str,
+        original_yaml=yml_str,
+        refactor_logs=refactor_logs,
+    )
+
+
+# TODO: what about individual models in the config there?
+def rec_check_yaml_path(yml_dict, path: Path, refactor_logs=None):
+    # we can't set refactor_logs as an empty list
+
+    if not path.exists():
+        return yml_dict, [] if refactor_logs is None else refactor_logs
+
+    yml_dict_copy = yml_dict.copy()
+    for k, v in yml_dict_copy.items():
+        if k in allowed_config_fields and not (path / k).exists():
+            new_k = f"+{k}"
+            yml_dict[new_k] = v
+            log_msg = f"Added '+' in front of the nested config '{k}'"
+            if refactor_logs is None:
+                refactor_logs = [log_msg]
+            else:
+                refactor_logs.append(log_msg)
+            del yml_dict[k]
+        else:
+            new_dict, refactor_logs = rec_check_yaml_path(yml_dict[k], path / k, refactor_logs)
+            yml_dict[k] = new_dict
+    return yml_dict, [] if refactor_logs is None else refactor_logs
+
+
+def changeset_dbt_project_prefix_plus_for_config(yml_str: str, path: Path) -> YMLRuleRefactorResult:
+    """Update keys for the config in dbt_project.yml under to prefix it with a `+`"""
+    all_refactor_logs = []
+
+    yml_dict = DbtYAML().load(yml_str) or {}
+
+    for config_type in ["models", "seeds", "tests", "snapshots"]:
+        for k, v in yml_dict.get(config_type, {}).copy().items():
+            # check if this is the project name
+            if k == yml_dict["name"]:
+                new_dict, refactor_logs = rec_check_yaml_path(v, path / config_type)
+                yml_dict[config_type][k] = new_dict
+                all_refactor_logs.extend(refactor_logs)
+                # breakpoint()
+
+            # top level config
+            elif k in allowed_config_fields:
+                all_refactor_logs.append(f"Added '+' in front of top level config '{k}'")
+                new_k = f"+{k}"
+                yml_dict[config_type][new_k] = v
+                del yml_dict[config_type][k]
+
+            # otherwise, treat it as a package
+            # TODO: if this is not valid, we could delete it as well
+            else:
+                packages_path = path / Path(yml_dict.get("packages-paths", "dbt_packages"))
+                new_dict, refactor_logs = rec_check_yaml_path(v, packages_path / config_type / k)
+                yml_dict[config_type][k] = new_dict
+                all_refactor_logs.extend(refactor_logs)
+
+    refactored = len(all_refactor_logs) > 0
+    return YMLRuleRefactorResult(
+        rule_name="prefix_plus_for_config",
+        refactored=refactored,
+        refactored_yaml=DbtYAML().dump_to_string(yml_dict) if refactored else yml_str,
+        original_yaml=yml_str,
+        refactor_logs=all_refactor_logs,
     )
 
 
@@ -621,9 +763,12 @@ def changeset_all_sql_yml_files(
     sql_results = process_sql_files(path, dbt_paths, dry_run)
 
     # Process YAML files
-    yaml_results = process_yaml_files(path, dbt_paths, dry_run)
+    yaml_results = process_yaml_files_except_dbt_project(path, dbt_paths, dry_run)
 
-    return yaml_results, sql_results
+    # Process dbt_project.yml
+    dbt_project_yml_result = process_dbt_project_yml(path, dry_run)
+
+    return yaml_results + [dbt_project_yml_result], sql_results
 
 
 def apply_changesets(
