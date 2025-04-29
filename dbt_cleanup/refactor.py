@@ -217,6 +217,8 @@ class YMLRefactorResult:
         for refactor in self.refactors:
             if refactor.refactored:
                 console.print(f"  {refactor.rule_name}", style="yellow")
+                for log in refactor.refactor_logs:
+                    console.print(f"    {log}")
 
 
 @dataclass
