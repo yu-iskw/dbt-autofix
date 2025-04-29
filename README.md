@@ -1,15 +1,20 @@
 # dbt-cleanup
 
-This tool can help teams clean up their dbt projects so that it conforms with dbt configuration best practices:
+This tool can help teams clean up their dbt projects so that it conforms with dbt configuration best practices and update deprecated config:
 
-- it removes duplicate keys in YAML files and only keep the last one
-  - this should not change the behavior of the current project
-- it refactors YAML file to follow config best practices
-  - it moves all the allowed configs under `config`
-  - it moves all the custom configs under `meta`, and `meta` under `config`
-  - the tool tries to keep most YAML comments intact as part of the refactor
-- it refactors SQL files, removing some invaid Jinja
-  - it removes `{% endmacro %}` and `{% endif %}` that don't have corresponding opening statements
+
+| Deprecation Code in dbt Core  | Files             | Description                                                                                      |
+| ----------------------------- | ----------------- | ------------------------------------------------------------------------------------------------ |
+| ConfigDataPathDeprecation     | `dbt_project.yml` |                                                                                                  |
+| ConfigLogPathDeprecation      | `dbt_project.yml` |                                                                                                  |
+| ConfigSourcePathDeprecation   | `dbt_project.yml` |                                                                                                  |
+| ConfigTargetPathDeprecation   | `dbt_project.yml` |                                                                                                  |
+| N/A                           | `dbt_project.yml` | Prefix all configs for modeles/tests etc... with a `+`                                           |
+| N/A                           | YAML files        | Move all node configs under `config:` in YAML files                                              |
+| N/A                           | YAML files        | Move all node extra config (not valid or custom) under `meta:` and `meta` under `config`         |
+| N/A                           | YAML files        | Remove duplicate keys in YAML files, keeping the second one to keep the same behaviour           |
+| N/A                           | SQL files         | Remove extra `{% endmacro %}` and `{% endif %}` that don't have corresponding opening statements |
+
 
 ## Installation
 
