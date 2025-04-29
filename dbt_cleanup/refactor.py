@@ -63,6 +63,8 @@ allowed_config_fields = set(
         "on_configuration_change",
         "unique_key",
         "incremental_strategy",  # was missing at first
+        "quoting",  # was missing at first
+        "on_schema_change",  # was missing at first
         "batch_size",
         "begin",
         "lookback",
@@ -614,7 +616,7 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
     for p in yamllint.linter.run(yml_str, yaml_config):
         if p.rule == "key-duplicates":
             refactored = True
-            refactor_logs.append(f"Found duplicate keys: {p.line} - {p.desc}")
+            refactor_logs.append(f"Found duplicate keys: line {p.line} - {p.desc}")
 
     if refactored:
         import yaml
@@ -642,12 +644,34 @@ def changeset_dbt_project_remove_deprecated_config(yml_str: str) -> YMLRuleRefac
         "log-path",
         "target-path",
     }
+
+    dict_renamed_fields = {
+        "data-paths": "seed-paths",
+        "source-paths": "model-paths",
+    }
+
     yml_dict = DbtYAML().load(yml_str) or {}
 
     for deprecated_field in set_deprecated_fields:
         if deprecated_field in yml_dict:
             refactored = True
             refactor_logs.append(f"Removed the deprecated field '{deprecated_field}'")
+            del yml_dict[deprecated_field]
+
+    # TODO: add tests for this
+    for deprecated_field, new_field in dict_renamed_fields.items():
+        if deprecated_field in yml_dict:
+            refactored = True
+            if new_field not in yml_dict:
+                refactor_logs.append(
+                    f"Renamed the deprecated field '{deprecated_field}' to '{new_field}'"
+                )
+                yml_dict[new_field] = yml_dict[deprecated_field]
+            else:
+                refactor_logs.append(
+                    f"Added the config of the deprecated field '{deprecated_field}' to '{new_field}'"
+                )
+                yml_dict[new_field] = yml_dict[new_field] + yml_dict[deprecated_field]
             del yml_dict[deprecated_field]
 
     return YMLRuleRefactorResult(
@@ -659,10 +683,11 @@ def changeset_dbt_project_remove_deprecated_config(yml_str: str) -> YMLRuleRefac
     )
 
 
-# TODO: what about individual models in the config there?
 def rec_check_yaml_path(yml_dict, path: Path, refactor_logs=None):
     # we can't set refactor_logs as an empty list
 
+    # TODO: what about individual models in the config there?
+    # indivdual models would show up here but without the `.sql` (or `.py`)
     if not path.exists():
         return yml_dict, [] if refactor_logs is None else refactor_logs
 
@@ -709,7 +734,7 @@ def changeset_dbt_project_prefix_plus_for_config(yml_str: str, path: Path) -> YM
             # TODO: if this is not valid, we could delete it as well
             else:
                 packages_path = path / Path(yml_dict.get("packages-paths", "dbt_packages"))
-                new_dict, refactor_logs = rec_check_yaml_path(v, packages_path / config_type / k)
+                new_dict, refactor_logs = rec_check_yaml_path(v, packages_path / k / config_type)
                 yml_dict[config_type][k] = new_dict
                 all_refactor_logs.extend(refactor_logs)
 
