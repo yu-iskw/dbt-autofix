@@ -643,12 +643,12 @@ def process_sql_files(
     return results
 
 
-def restructure_yaml_keys_for_model(model: Dict) -> Tuple[Dict, bool, List[str]]:
+def restructure_yaml_keys_for_node(node: Dict, node_type: str) -> Tuple[Dict, bool, List[str]]:
     """Restructure YAML keys according to dbt conventions.
 
     Args:
-        model: The model dictionary to process
-        refactor_logs: List to append logs to
+        node: The node dictionary to process
+        node_type: The type of node to process
 
     Returns:
         Tuple containing:
@@ -658,68 +658,71 @@ def restructure_yaml_keys_for_model(model: Dict) -> Tuple[Dict, bool, List[str]]
     """
     refactored = False
     refactor_logs = []
-    existing_meta = model.get("meta", {}).copy()
+    existing_meta = node.get("meta", {}).copy()
+    pretty_node_type = node_type[:-1].title()
 
-    # we can not loop model and modify it at the same time
-    copy_model = model.copy()
+    # we can not loop node and modify it at the same time
+    copy_node = node.copy()
 
-    for field in copy_model:
-        if field in models_allowed_config.allowed_properties:
+    for field in copy_node:
+        if field in fields_per_node_type[node_type].allowed_properties:
             continue
 
-        if field in models_allowed_config.allowed_config_fields_without_meta:
+        if field in fields_per_node_type[node_type].allowed_config_fields_without_meta:
             refactored = True
-            model_config = model.get("config", {})
+            node_config = node.get("config", {})
 
             # if the field is not under config, move it under config
-            if field not in model_config:
-                model_config.update({field: model[field]})
-                refactor_logs.append(f"Field '{field}' would be moved under config.")
-                model["config"] = model_config
+            if field not in node_config:
+                node_config.update({field: node[field]})
+                refactor_logs.append(
+                    f"{pretty_node_type} {node['name']} - Field '{field}' moved under config."
+                )
+                node["config"] = node_config
 
             # if the field is already under config, it will take precedence there, so we remove it from the top level
             else:
                 refactor_logs.append(
                     f"Field '{field}' is already under config, it has been removed from the top level."
                 )
-            del model[field]
+            del node[field]
 
-        if field not in models_allowed_config.allowed_config_fields:
+        if field not in fields_per_node_type[node_type].allowed_config_fields:
             refactored = True
             closest_match = difflib.get_close_matches(
                 field,
-                models_allowed_config.allowed_config_fields.union(
-                    set(models_allowed_config.allowed_properties)
+                fields_per_node_type[node_type].allowed_config_fields.union(
+                    set(fields_per_node_type[node_type].allowed_properties)
                 ),
                 1,
             )
             if closest_match:
                 refactor_logs.append(
-                    f"Model {model['name']} - Field '{field}' is not allowed, but '{closest_match[0]}' is. Moved as-is under config.meta but you might want to rename it and move it under config."
+                    f"{pretty_node_type} {node['name']} - Field '{field}' is not allowed, but '{closest_match[0]}' is. Moved as-is under config.meta but you might want to rename it and move it under config."
                 )
             else:
                 refactor_logs.append(
-                    f"Model {model['name']} - Field '{field}' is not an allowed config - Moved under config.meta."
+                    f"{pretty_node_type} {node['name']} - Field '{field}' is not an allowed config - Moved under config.meta."
                 )
-            model_meta = model.get("config", {}).get("meta", {})
-            model_meta.update({field: model[field]})
-            model["config"] = {"meta": model_meta}
-            del model[field]
+            node_meta = node.get("config", {}).get("meta", {})
+            node_meta.update({field: node[field]})
+            node["config"] = {"meta": node_meta}
+            del node[field]
 
     if existing_meta:
         refactored = True
         refactor_logs.append(
-            f"Model {model['name']} - Moved all the meta fields under config.meta and merged with existing config.meta."
+            f"{pretty_node_type} {node['name']} - Moved all the meta fields under config.meta and merged with existing config.meta."
         )
-        if "config" not in model:
-            model["config"] = {"meta": {}}
-        if "meta" not in model["config"]:
-            model["config"]["meta"] = {}
+        if "config" not in node:
+            node["config"] = {"meta": {}}
+        if "meta" not in node["config"]:
+            node["config"]["meta"] = {}
         for key, value in existing_meta.items():
-            model["config"]["meta"].update({key: value})
-        del model["meta"]
+            node["config"]["meta"].update({key: value})
+        del node["meta"]
 
-    return model, refactored, refactor_logs
+    return node, refactored, refactor_logs
 
 
 def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
@@ -733,15 +736,16 @@ def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
     refactor_logs = []
     yml_dict = DbtYAML().load(yml_str) or {}
 
-    if "models" in yml_dict:
-        for i, model in enumerate(yml_dict["models"]):
-            processed_model, model_refactored, model_refactor_logs = (
-                restructure_yaml_keys_for_model(model)
-            )
-            if model_refactored:
-                refactored = True
-                yml_dict["models"][i] = processed_model
-                refactor_logs.extend(model_refactor_logs)
+    for node_type in fields_per_node_type:
+        if node_type in yml_dict:
+            for i, node in enumerate(yml_dict[node_type]):
+                processed_node, node_refactored, node_refactor_logs = (
+                    restructure_yaml_keys_for_node(node, node_type)
+                )
+                if node_refactored:
+                    refactored = True
+                    yml_dict[node_type][i] = processed_node
+                    refactor_logs.extend(node_refactor_logs)
 
     return YMLRuleRefactorResult(
         rule_name="restructure_yaml_keys",
