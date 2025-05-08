@@ -18,7 +18,7 @@ app = typer.Typer(
 )
 
 
-@app.command(name="duplicates")
+@app.command(name="list-yaml-duplicates")
 def identify_duplicate_keys(
     path: Annotated[Path, typer.Option("--path", "-p", help="The path to the dbt project")] = Path(
         "."
@@ -29,7 +29,7 @@ def identify_duplicate_keys(
     print_duplicate_keys(project_duplicates, package_duplicates)
 
 
-@app.command(name="refactor")
+@app.command(name="deprecations")
 def refactor_yml(
     path: Annotated[Path, typer.Option("--path", "-p", help="The path to the dbt project")] = Path(
         "."
