@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from dbt_cleanup.duplicate_keys import DuplicateFound, find_duplicate_keys
+from dbt_autofix.duplicate_keys import DuplicateFound, find_duplicate_keys
 
 
 @pytest.fixture

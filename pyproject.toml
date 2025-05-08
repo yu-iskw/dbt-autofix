@@ -17,7 +17,7 @@ dependencies = [
 package = true
 
 [project.scripts]
-dbt-autofix = "dbt_cleanup.main:app"
+dbt-autofix = "dbt_autofix.main:app"
 
 
 [project.optional-dependencies]

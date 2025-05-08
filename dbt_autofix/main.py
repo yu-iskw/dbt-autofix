@@ -5,8 +5,8 @@ from rich import print
 from rich.console import Console
 from typing_extensions import Annotated
 
-from dbt_cleanup.duplicate_keys import find_duplicate_keys, print_duplicate_keys
-from dbt_cleanup.refactor import apply_changesets, changeset_all_sql_yml_files
+from dbt_autofix.duplicate_keys import find_duplicate_keys, print_duplicate_keys
+from dbt_autofix.refactor import apply_changesets, changeset_all_sql_yml_files
 
 console = Console()
 error_console = Console(stderr=True)
