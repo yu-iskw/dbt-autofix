@@ -22,12 +22,12 @@ To run it from the git repo directly, install `uv` and then
 
 run the tool directly
 ```sh
-uvx --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-cleanup --help
+uvx --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-autofix --help
 ```
 
 or install it so that it can be run with `dbt-cleanup` in the future
 ```sh
-uv tool install --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-cleanup
+uv tool install --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-autofix
 ```
 
 ## Usage

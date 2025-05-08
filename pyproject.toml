@@ -1,5 +1,5 @@
 [project]
-name = "dbt-cleanup"
+name = "dbt-autofix"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
