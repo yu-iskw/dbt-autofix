@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from yaml import safe_load
 
-from dbt_cleanup.refactor import (
+from dbt_autofix.refactor import (
     SQLRefactorResult,
     YMLRefactorResult,
     YMLRuleRefactorResult,
