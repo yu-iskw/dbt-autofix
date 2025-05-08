@@ -12,6 +12,7 @@ from dbt_cleanup.refactor import (
     changeset_dbt_project_remove_deprecated_config,
     changeset_refactor_yml_str,
     dict_to_yaml_str,
+    fields_per_node_type,
     rec_check_yaml_path,
     remove_unmatched_endings,
 )
@@ -524,7 +525,9 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir)
+        new_yml, refactor_logs = rec_check_yaml_path(
+            test_data, temp_project_dir, fields_per_node_type["models"]
+        )
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
@@ -538,7 +541,9 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir)
+        new_yml, refactor_logs = rec_check_yaml_path(
+            test_data, temp_project_dir, fields_per_node_type["models"]
+        )
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
@@ -552,7 +557,9 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir)
+        new_yml, refactor_logs = rec_check_yaml_path(
+            test_data, temp_project_dir, fields_per_node_type["models"]
+        )
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
@@ -566,7 +573,9 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir)
+        new_yml, refactor_logs = rec_check_yaml_path(
+            test_data, temp_project_dir, fields_per_node_type["models"]
+        )
         assert expected_data == new_yml
         assert len(refactor_logs) == 0
 
