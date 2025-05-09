@@ -349,9 +349,7 @@ class YMLRefactorResult:
             to_print = {
                 "mode": "dry_run" if self.dry_run else "applied",
                 "file_path": str(self.file_path),
-                "refactors": list(
-                    set([refactor.rule_name for refactor in self.refactors if refactor.refactored])
-                ),
+                "refactors": list(set([refactor.rule_name for refactor in self.refactors if refactor.refactored])),
             }
             console.print(json.dumps(to_print))
             return
@@ -397,9 +395,7 @@ class SQLRefactorResult:
             to_print = {
                 "mode": "dry_run" if self.dry_run else "applied",
                 "file_path": str(self.file_path),
-                "refactors": list(
-                    set([refactor.rule_name for refactor in self.refactors if refactor.refactored])
-                ),
+                "refactors": list(set([refactor.rule_name for refactor in self.refactors if refactor.refactored])),
             }
             console.print(json.dumps(to_print))
             return
@@ -413,7 +409,7 @@ class SQLRefactorResult:
                 console.print(f"  {refactor.rule_name}", style="yellow")
 
 
-def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:
+def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:  # noqa: PLR0912
     """Remove unmatched {% endmacro %} and {% endif %} tags from SQL content.
 
     Handles:
@@ -532,13 +528,9 @@ def process_yaml_files_except_dbt_project(
             if changeset_remove_duplicate_keys_result.refactored:
                 yml_refactor_result.refactors.append(changeset_remove_duplicate_keys_result)
                 yml_refactor_result.refactored = True
-                yml_refactor_result.refactored_yaml = (
-                    changeset_remove_duplicate_keys_result.refactored_yaml
-                )
+                yml_refactor_result.refactored_yaml = changeset_remove_duplicate_keys_result.refactored_yaml
 
-            changeset_refactor_result = changeset_refactor_yml_str(
-                yml_refactor_result.refactored_yaml
-            )
+            changeset_refactor_result = changeset_refactor_yml_str(yml_refactor_result.refactored_yaml)
             if changeset_refactor_result.refactored:
                 yml_refactor_result.refactors.append(changeset_refactor_result)
                 yml_refactor_result.refactored = True
@@ -562,42 +554,32 @@ def process_dbt_project_yml(path: Path, dry_run: bool = False) -> YMLRefactorRes
     )
 
     # TODO: refactor to be more DRY
-    changeset_remove_duplicate_keys_result = changeset_remove_duplicate_keys(
-        yml_refactor_result.refactored_yaml
-    )
+    changeset_remove_duplicate_keys_result = changeset_remove_duplicate_keys(yml_refactor_result.refactored_yaml)
     if changeset_remove_duplicate_keys_result.refactored:
         yml_refactor_result.refactors.append(changeset_remove_duplicate_keys_result)
         yml_refactor_result.refactored = True
         yml_refactor_result.refactored_yaml = changeset_remove_duplicate_keys_result.refactored_yaml
 
-    changeset_dbt_project_remove_deprecated_config_result = (
-        changeset_dbt_project_remove_deprecated_config(
-            yml_refactor_result.refactored_yaml,
-        )
+    changeset_dbt_project_remove_deprecated_config_result = changeset_dbt_project_remove_deprecated_config(
+        yml_refactor_result.refactored_yaml,
     )
     if changeset_dbt_project_remove_deprecated_config_result.refactored:
         yml_refactor_result.refactors.append(changeset_dbt_project_remove_deprecated_config_result)
         yml_refactor_result.refactored = True
-        yml_refactor_result.refactored_yaml = (
-            changeset_dbt_project_remove_deprecated_config_result.refactored_yaml
-        )
+        yml_refactor_result.refactored_yaml = changeset_dbt_project_remove_deprecated_config_result.refactored_yaml
 
-    changeset_dbt_project_prefix_plus_for_config_result = (
-        changeset_dbt_project_prefix_plus_for_config(yml_refactor_result.refactored_yaml, path)
+    changeset_dbt_project_prefix_plus_for_config_result = changeset_dbt_project_prefix_plus_for_config(
+        yml_refactor_result.refactored_yaml, path
     )
     if changeset_dbt_project_prefix_plus_for_config_result.refactored:
         yml_refactor_result.refactors.append(changeset_dbt_project_prefix_plus_for_config_result)
         yml_refactor_result.refactored = True
-        yml_refactor_result.refactored_yaml = (
-            changeset_dbt_project_prefix_plus_for_config_result.refactored_yaml
-        )
+        yml_refactor_result.refactored_yaml = changeset_dbt_project_prefix_plus_for_config_result.refactored_yaml
 
     return yml_refactor_result
 
 
-def process_sql_files(
-    path: Path, sql_paths: Iterable[str], dry_run: bool = False
-) -> List[SQLRefactorResult]:
+def process_sql_files(path: Path, sql_paths: Iterable[str], dry_run: bool = False) -> List[SQLRefactorResult]:
     """Process all SQL files in the given paths for unmatched endings.
 
     Args:
@@ -645,9 +627,7 @@ def process_sql_files(
     return results
 
 
-def restructure_yaml_keys_for_node(
-    node: Dict[str, Any], node_type: str
-) -> Tuple[Dict[str, Any], bool, List[str]]:
+def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tuple[Dict[str, Any], bool, List[str]]:
     """Restructure YAML keys according to dbt conventions.
 
     Args:
@@ -679,9 +659,7 @@ def restructure_yaml_keys_for_node(
             # if the field is not under config, move it under config
             if field not in node_config:
                 node_config.update({field: node[field]})
-                refactor_logs.append(
-                    f"{pretty_node_type} {node['name']} - Field '{field}' moved under config."
-                )
+                refactor_logs.append(f"{pretty_node_type} {node['name']} - Field '{field}' moved under config.")
                 node["config"] = node_config
 
             # if the field is already under config, it will take precedence there, so we remove it from the top level
@@ -743,9 +721,7 @@ def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
     for node_type in fields_per_node_type:
         if node_type in yml_dict:
             for i, node in enumerate(yml_dict[node_type]):
-                processed_node, node_refactored, node_refactor_logs = (
-                    restructure_yaml_keys_for_node(node, node_type)
-                )
+                processed_node, node_refactored, node_refactor_logs = restructure_yaml_keys_for_node(node, node_type)
                 if node_refactored:
                     refactored = True
                     yml_dict[node_type][i] = processed_node
@@ -817,14 +793,10 @@ def changeset_dbt_project_remove_deprecated_config(yml_str: str) -> YMLRuleRefac
         if deprecated_field in yml_dict:
             refactored = True
             if new_field not in yml_dict:
-                refactor_logs.append(
-                    f"Renamed the deprecated field '{deprecated_field}' to '{new_field}'"
-                )
+                refactor_logs.append(f"Renamed the deprecated field '{deprecated_field}' to '{new_field}'")
                 yml_dict[new_field] = yml_dict[deprecated_field]
             else:
-                refactor_logs.append(
-                    f"Added the config of the deprecated field '{deprecated_field}' to '{new_field}'"
-                )
+                refactor_logs.append(f"Added the config of the deprecated field '{deprecated_field}' to '{new_field}'")
                 yml_dict[new_field] = yml_dict[new_field] + yml_dict[deprecated_field]
             del yml_dict[deprecated_field]
 
@@ -862,9 +834,7 @@ def rec_check_yaml_path(
                 refactor_logs.append(log_msg)
             del yml_dict[k]
         else:
-            new_dict, refactor_logs = rec_check_yaml_path(
-                yml_dict[k], path / k, node_fields, refactor_logs
-            )
+            new_dict, refactor_logs = rec_check_yaml_path(yml_dict[k], path / k, node_fields, refactor_logs)
             yml_dict[k] = new_dict
     return yml_dict, [] if refactor_logs is None else refactor_logs
 
@@ -894,9 +864,7 @@ def changeset_dbt_project_prefix_plus_for_config(yml_str: str, path: Path) -> YM
             # TODO: if this is not valid, we could delete it as well
             else:
                 packages_path = path / Path(yml_dict.get("packages-paths", "dbt_packages"))
-                new_dict, refactor_logs = rec_check_yaml_path(
-                    v, packages_path / k / node_type, node_fields
-                )
+                new_dict, refactor_logs = rec_check_yaml_path(v, packages_path / k / node_type, node_fields)
                 yml_dict[node_type][k] = new_dict
                 all_refactor_logs.extend(refactor_logs)
 
@@ -955,7 +923,7 @@ def changeset_all_sql_yml_files(
     # Process dbt_project.yml
     dbt_project_yml_result = process_dbt_project_yml(path, dry_run)
 
-    return yaml_results + [dbt_project_yml_result], sql_results
+    return [*yaml_results, dbt_project_yml_result], sql_results
 
 
 def apply_changesets(

@@ -41,9 +41,7 @@ def find_duplicate_keys(
     package_duplicates: List[DuplicateFound] = []
 
     yml_files = set(root_dir.glob("**/*.yml")).union(set(root_dir.glob("**/*.yaml")))
-    yml_files_target = set((root_dir / "target").glob("**/*.yml")).union(
-        set((root_dir / "target").glob("**/*.yaml"))
-    )
+    yml_files_target = set((root_dir / "target").glob("**/*.yml")).union(set((root_dir / "target").glob("**/*.yaml")))
 
     packages_path = yaml.safe_load((root_dir / "dbt_project.yml").read_text()).get(
         "packages-install-path", "dbt_packages"
@@ -54,12 +52,10 @@ def find_duplicate_keys(
     )
 
     # this is a hack to avoid checking integration_tests. it won't work everywhere but it's good enough for now
-    yml_files_packages_integration_tests = set(
-        (root_dir / packages_path).glob("**/integration_tests/**/*.yml")
-    ).union(set((root_dir / packages_path).glob("**/integration_tests/**/*.yaml")))
-    yml_files_packages_not_integration_tests = (
-        yml_files_packages - yml_files_packages_integration_tests
+    yml_files_packages_integration_tests = set((root_dir / packages_path).glob("**/integration_tests/**/*.yml")).union(
+        set((root_dir / packages_path).glob("**/integration_tests/**/*.yaml"))
     )
+    yml_files_packages_not_integration_tests = yml_files_packages - yml_files_packages_integration_tests
 
     yml_files_not_target_or_packages = yml_files - yml_files_target - yml_files_packages
 
@@ -74,9 +70,7 @@ def find_duplicate_keys(
                     DuplicateFound(
                         file=file,
                         line=p.line,
-                        key=p.desc.split('"')[1]
-                        if '"' in p.desc
-                        else "",  # Extract key from description
+                        key=p.desc.split('"')[1] if '"' in p.desc else "",  # Extract key from description
                         value=p.desc,
                     )
                 )
@@ -94,9 +88,7 @@ def find_duplicate_keys(
                     DuplicateFound(
                         file=file,
                         line=p.line,
-                        key=p.desc.split('"')[1]
-                        if '"' in p.desc
-                        else "",  # Extract key from description
+                        key=p.desc.split('"')[1] if '"' in p.desc else "",  # Extract key from description
                         value=p.desc,
                     )
                 )
@@ -104,9 +96,7 @@ def find_duplicate_keys(
     return project_duplicates, package_duplicates
 
 
-def print_duplicate_keys(
-    project_duplicates: List[DuplicateFound], package_duplicates: List[DuplicateFound]
-) -> None:
+def print_duplicate_keys(project_duplicates: List[DuplicateFound], package_duplicates: List[DuplicateFound]) -> None:
     """
     Print duplicate keys in the project and packages as well as instructions to fix them.
     """

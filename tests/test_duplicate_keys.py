@@ -135,7 +135,5 @@ models:
 
 
 def test_duplicate_found_str_representation():
-    dup = DuplicateFound(
-        file=Path("test.yml"), line=10, key="test_key", value="duplicate key: test_key"
-    )
+    dup = DuplicateFound(file=Path("test.yml"), line=10, key="test_key", value="duplicate key: test_key")
     assert str(dup) == "test.yml:10 -- duplicate key: test_key"

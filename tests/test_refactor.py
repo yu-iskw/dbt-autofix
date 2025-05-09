@@ -283,9 +283,7 @@ class TestUnmatchedEndingsRemoval:
 
         for content in test_cases:
             result, logs = remove_unmatched_endings(content)
-            assert "endmacro" not in result or (
-                "{% if condition %}" in content and "{% endmacro %}" not in result
-            )
+            assert "endmacro" not in result or ("{% if condition %}" in content and "{% endmacro %}" not in result)
             if "endmacro" in content and "if condition" not in content:
                 assert len(logs) == 1
                 assert "Removed unmatched {% endmacro %}" in logs[0]
@@ -396,9 +394,7 @@ class TestYamlRefactoring:
         # Check that meta was merged correctly
         assert model["config"]["meta"]["abc"] == 123
 
-    def test_changeset_all_yml_files(
-        self, temp_project_dir: Path, schema_yml_with_config_fields: str
-    ):
+    def test_changeset_all_yml_files(self, temp_project_dir: Path, schema_yml_with_config_fields: str):
         # Create multiple YAML files
         models_dir = temp_project_dir / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
@@ -480,13 +476,8 @@ class TestYamlRefactoring:
         assert model["config"]["meta"]["zorderr"] == 30
 
         # Check that appropriate logs were generated
-        assert any(
-            "'materialize' is not allowed, but 'materialized' is" in log
-            for log in result.refactor_logs
-        )
-        assert any(
-            "'zorderr' is not allowed, but 'zorder' is" in log for log in result.refactor_logs
-        )
+        assert any("'materialize' is not allowed, but 'materialized' is" in log for log in result.refactor_logs)
+        assert any("'zorderr' is not allowed, but 'zorder' is" in log for log in result.refactor_logs)
 
 
 class TestYamlOutput:
@@ -519,17 +510,13 @@ class TestDbtProjectYAMLPusPrefix:
         # Test that output_yaml produces valid YAML
 
         test_data = {"models": {"materialized": "table", "not_a_config": {"materialized": "view"}}}
-        expected_data = {
-            "models": {"+materialized": "table", "not_a_config": {"+materialized": "view"}}
-        }
+        expected_data = {"models": {"+materialized": "table", "not_a_config": {"+materialized": "view"}}}
 
         new_file = temp_project_dir / "models" / "not_a_config" / "my_model.sql"
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(
-            test_data, temp_project_dir, fields_per_node_type["models"]
-        )
+        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir, fields_per_node_type["models"])
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
@@ -543,9 +530,7 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(
-            test_data, temp_project_dir, fields_per_node_type["models"]
-        )
+        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir, fields_per_node_type["models"])
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
@@ -559,9 +544,7 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(
-            test_data, temp_project_dir, fields_per_node_type["models"]
-        )
+        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir, fields_per_node_type["models"])
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
@@ -575,9 +558,7 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(
-            test_data, temp_project_dir, fields_per_node_type["models"]
-        )
+        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir, fields_per_node_type["models"])
         assert expected_data == new_yml
         assert len(refactor_logs) == 0
 
