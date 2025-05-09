@@ -226,6 +226,8 @@ snapshots_allowed_config = AllowedConfig(
             "event_time",
             # moved from property
             "docs",
+            # not in docs for config
+            "meta",
         ]
     ),
     allowed_properties=set(
