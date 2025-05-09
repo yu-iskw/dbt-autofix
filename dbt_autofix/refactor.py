@@ -3,7 +3,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import yamllint.config
 import yamllint.linter
@@ -48,17 +48,17 @@ def read_file(path: Path) -> Dict:
     return yaml.load(path)
 
 
-def dict_to_yaml_str(content: Dict) -> str:
+def dict_to_yaml_str(content: Dict[str, Any]) -> str:
     """Write a dict value to a YAML string"""
     yaml = DbtYAML()
-    file_text = yaml.dump_to_string(content)
+    file_text = yaml.dump_to_string(content)  # type: ignore
     return file_text
 
 
 @dataclass
 class AllowedConfig:
     allowed_config_fields: set[str]
-    allowed_properties: list[str]
+    allowed_properties: set[str]
 
     def __post_init__(self):
         self.allowed_config_fields_without_meta = self.allowed_config_fields - {"meta"}
@@ -436,13 +436,13 @@ def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:
     MACRO_END = re.compile(r"^endmacro")
     IF_END = re.compile(r"^endif")
 
-    logs = []
+    logs: List[str] = []
     # Track macro and if states with their positions
-    macro_stack = []  # [(start_pos, end_pos, macro_name), ...]
-    if_stack = []  # [(start_pos, end_pos), ...]
+    macro_stack: List[Tuple[int, int, str]] = []  # [(start_pos, end_pos, macro_name), ...]
+    if_stack: List[Tuple[int, int]] = []  # [(start_pos, end_pos), ...]
 
     # Track positions to remove
-    to_remove = []  # [(start_pos, end_pos), ...]
+    to_remove: List[Tuple[int, int]] = []  # [(start_pos, end_pos), ...]
 
     # Find all Jinja tags
     for match in JINJA_TAG_PATTERN.finditer(sql_content):
@@ -502,7 +502,7 @@ def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:
 
 
 def process_yaml_files_except_dbt_project(
-    path: Path, model_paths: List[str], dry_run: bool = False
+    path: Path, model_paths: Iterable[str], dry_run: bool = False
 ) -> List[YMLRefactorResult]:
     """Process all YAML files in the project
 
@@ -596,7 +596,7 @@ def process_dbt_project_yml(path: Path, dry_run: bool = False) -> YMLRefactorRes
 
 
 def process_sql_files(
-    path: Path, sql_paths: Set[str], dry_run: bool = False
+    path: Path, sql_paths: Iterable[str], dry_run: bool = False
 ) -> List[SQLRefactorResult]:
     """Process all SQL files in the given paths for unmatched endings.
 
@@ -607,7 +607,7 @@ def process_sql_files(
     Returns:
         List of SQLRefactorResult for each processed file
     """
-    results = []
+    results: List[SQLRefactorResult] = []
 
     for sql_path in sql_paths:
         full_path = (path / sql_path).resolve()
@@ -645,7 +645,9 @@ def process_sql_files(
     return results
 
 
-def restructure_yaml_keys_for_node(node: Dict, node_type: str) -> Tuple[Dict, bool, List[str]]:
+def restructure_yaml_keys_for_node(
+    node: Dict[str, Any], node_type: str
+) -> Tuple[Dict[str, Any], bool, List[str]]:
     """Restructure YAML keys according to dbt conventions.
 
     Args:
@@ -659,7 +661,7 @@ def restructure_yaml_keys_for_node(node: Dict, node_type: str) -> Tuple[Dict, bo
         - List of refactor logs
     """
     refactored = False
-    refactor_logs = []
+    refactor_logs: List[str] = []
     existing_meta = node.get("meta", {}).copy()
     pretty_node_type = node_type[:-1].title()
 
@@ -735,7 +737,7 @@ def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
     - provide some information if some fields don't exist but are similar to allowed fields
     """
     refactored = False
-    refactor_logs = []
+    refactor_logs: List[str] = []
     yml_dict = DbtYAML().load(yml_str) or {}
 
     for node_type in fields_per_node_type:
@@ -763,7 +765,7 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
     The drawback of keeping the first occurence is that we need to use PyYAML and then lose all the comments that were in the file
     """
     refactored = False
-    refactor_logs = []
+    refactor_logs: List[str] = []
 
     for p in yamllint.linter.run(yml_str, yaml_config):
         if p.rule == "key-duplicates":
@@ -774,7 +776,7 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
         import yaml
 
         # we use dump from ruamel to keep indentation style but this loses quite a bit of formatting though
-        refactored_yaml = DbtYAML().dump_to_string(yaml.safe_load(yml_str))
+        refactored_yaml = DbtYAML().dump_to_string(yaml.safe_load(yml_str))  # type: ignore
     else:
         refactored_yaml = yml_str
 
@@ -790,7 +792,7 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
 def changeset_dbt_project_remove_deprecated_config(yml_str: str) -> YMLRuleRefactorResult:
     """Remove deprecated keys"""
     refactored = False
-    refactor_logs = []
+    refactor_logs: List[str] = []
 
     set_deprecated_fields = {
         "log-path",
@@ -829,13 +831,18 @@ def changeset_dbt_project_remove_deprecated_config(yml_str: str) -> YMLRuleRefac
     return YMLRuleRefactorResult(
         rule_name="remove_deprecated_config",
         refactored=refactored,
-        refactored_yaml=DbtYAML().dump_to_string(yml_dict) if refactored else yml_str,
+        refactored_yaml=DbtYAML().dump_to_string(yml_dict) if refactored else yml_str,  # type: ignore
         original_yaml=yml_str,
         refactor_logs=refactor_logs,
     )
 
 
-def rec_check_yaml_path(yml_dict, path: Path, node_fields: AllowedConfig, refactor_logs=None):
+def rec_check_yaml_path(
+    yml_dict: Dict[str, Any],
+    path: Path,
+    node_fields: AllowedConfig,
+    refactor_logs: Optional[List[str]] = None,
+):
     # we can't set refactor_logs as an empty list
 
     # TODO: what about individual models in the config there?
@@ -864,7 +871,7 @@ def rec_check_yaml_path(yml_dict, path: Path, node_fields: AllowedConfig, refact
 
 def changeset_dbt_project_prefix_plus_for_config(yml_str: str, path: Path) -> YMLRuleRefactorResult:
     """Update keys for the config in dbt_project.yml under to prefix it with a `+`"""
-    all_refactor_logs = []
+    all_refactor_logs: List[str] = []
 
     yml_dict = DbtYAML().load(yml_str) or {}
 
@@ -897,13 +904,13 @@ def changeset_dbt_project_prefix_plus_for_config(yml_str: str, path: Path) -> YM
     return YMLRuleRefactorResult(
         rule_name="prefix_plus_for_config",
         refactored=refactored,
-        refactored_yaml=DbtYAML().dump_to_string(yml_dict) if refactored else yml_str,
+        refactored_yaml=DbtYAML().dump_to_string(yml_dict) if refactored else yml_str,  # type: ignore
         original_yaml=yml_str,
         refactor_logs=all_refactor_logs,
     )
 
 
-def get_dbt_paths(path: Path) -> List[str]:
+def get_dbt_paths(path: Path) -> Set[str]:
     """Get model and macro paths from dbt_project.yml
 
     Args:
@@ -921,7 +928,7 @@ def get_dbt_paths(path: Path) -> List[str]:
     analysis_paths = project_config.get("analysis-paths", ["analyses"])
     snapshot_paths = project_config.get("snapshot-paths", ["snapshots"])
 
-    return list(set(model_paths + macro_paths + test_paths + analysis_paths + snapshot_paths))
+    return set(model_paths + macro_paths + test_paths + analysis_paths + snapshot_paths)
 
 
 def changeset_all_sql_yml_files(

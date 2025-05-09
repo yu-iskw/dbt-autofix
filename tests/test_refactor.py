@@ -293,22 +293,22 @@ class TestUnmatchedEndingsRemoval:
     def test_line_numbers(self):
         # Single line
         sql_content = "{% macro test() %}select 1{% endmacro %}{% endif %}"
-        result, logs = remove_unmatched_endings(sql_content)
+        _, logs = remove_unmatched_endings(sql_content)
         assert logs[0] == "Removed unmatched {% endif %} near line 1"
 
         # No leading newline
         sql_content = "{% macro test() %}\nselect 1\n{% endmacro %}\n{% endif %}"
-        result, logs = remove_unmatched_endings(sql_content)
+        _, logs = remove_unmatched_endings(sql_content)
         assert logs[0] == "Removed unmatched {% endif %} near line 4"
 
         # With leading newline
         sql_content = "\n{% macro test() %}\nselect 1\n{% endmacro %}\n{% endif %}"
-        result, logs = remove_unmatched_endings(sql_content)
+        _, logs = remove_unmatched_endings(sql_content)
         assert logs[0] == "Removed unmatched {% endif %} near line 5"
 
         # Mixed newlines
         sql_content = "{% macro test() %}\r\nselect 1\n{% endmacro %}\r\n{% endif %}"
-        result, logs = remove_unmatched_endings(sql_content)
+        _, logs = remove_unmatched_endings(sql_content)
         assert logs[0] == "Removed unmatched {% endif %} near line 4"
 
     def test_in_comments(self):
@@ -367,7 +367,7 @@ class TestYamlRefactoring:
     """Tests for YAML refactoring functions"""
 
     def test_changeset_refactor_yml_with_config_fields(
-        self, temp_project_dir, schema_yml_with_config_fields
+        self, temp_project_dir: Path, schema_yml_with_config_fields: str
     ):
         # Create a test YAML file
         yml_file = temp_project_dir / "models" / "schema.yml"
@@ -396,7 +396,9 @@ class TestYamlRefactoring:
         # Check that meta was merged correctly
         assert model["config"]["meta"]["abc"] == 123
 
-    def test_changeset_all_yml_files(self, temp_project_dir, schema_yml_with_config_fields):
+    def test_changeset_all_yml_files(
+        self, temp_project_dir: Path, schema_yml_with_config_fields: str
+    ):
         # Create multiple YAML files
         models_dir = temp_project_dir / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
@@ -427,7 +429,7 @@ class TestYamlRefactoring:
         assert (sub_dir / "other_schema.yaml").resolve() in processed_files
 
     def test_changeset_refactor_yml_with_fields_top_and_under_config(
-        self, temp_project_dir, schema_yml_with_fields_top_and_under_config
+        self, temp_project_dir: Path, schema_yml_with_fields_top_and_under_config: str
     ):
         # Create a test YAML file
         yml_file = temp_project_dir / "models" / "schema.yml"
@@ -449,7 +451,7 @@ class TestYamlRefactoring:
         assert model["config"]["materialized"] == "view"
 
     def test_changeset_refactor_yml_with_close_matches(
-        self, temp_project_dir, schema_yml_with_close_matches
+        self, temp_project_dir: Path, schema_yml_with_close_matches: str
     ):
         # Create a test YAML file
         yml_file = temp_project_dir / "models" / "schema.yml"
@@ -513,7 +515,7 @@ class TestYamlOutput:
 class TestDbtProjectYAMLPusPrefix:
     """Tests for YAML output functions"""
 
-    def test_check_project(self, temp_project_dir):
+    def test_check_project(self, temp_project_dir: Path):
         # Test that output_yaml produces valid YAML
 
         test_data = {"models": {"materialized": "table", "not_a_config": {"materialized": "view"}}}

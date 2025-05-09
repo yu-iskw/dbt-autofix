@@ -37,8 +37,8 @@ def find_duplicate_keys(
     """
     Find duplicate keys in the project and packages.
     """
-    project_duplicates = []
-    package_duplicates = []
+    project_duplicates: List[DuplicateFound] = []
+    package_duplicates: List[DuplicateFound] = []
 
     yml_files = set(root_dir.glob("**/*.yml")).union(set(root_dir.glob("**/*.yaml")))
     yml_files_target = set((root_dir / "target").glob("**/*.yml")).union(
@@ -83,7 +83,7 @@ def find_duplicate_keys(
         if file_with_duplicate and not dry_run:
             without_duplicates = yaml.safe_load(file_content)
             ruamel_yaml = DbtYAML()
-            ruamel_yaml.dump_to_string(without_duplicates)
+            ruamel_yaml.dump_to_string(without_duplicates)  # type: ignore
 
     # Check package YML files
     for file in yml_files_packages_not_integration_tests:
@@ -116,17 +116,21 @@ def print_duplicate_keys(
     if project_duplicates:
         console.print("\nThere are issues in your project YML files", style="bold red")
         console.print(
-            "Please remove duplicates by hand. dbt's default behavior is to keep the last occurence of a key.\n"
-            "If you want to keep the same behaviour remove or comments lines found for the same key and before in the file.\n"
-            "Once you have done all the changes in the files, run the tool again.\n"
+            (
+                "Please remove duplicates by hand. dbt's default behavior is to keep the last occurence of a key.\n"
+                "If you want to keep the same behaviour remove or comments lines found for the same key and before in the file.\n"
+                "Once you have done all the changes in the files, run the tool again.\n"
+            )
         )
         for dup in project_duplicates:
             console.print(str(dup))
 
     if package_duplicates:
         console.print(
-            "\nThose packages might have issues. If those are not maintained by you, check if there are updates available. "
-            "If they are private packages, remove duplicates in their own repository and publish a new version.\n",
+            (
+                "\nThose packages might have issues. If those are not maintained by you, check if there are updates available. "
+                "If they are private packages, remove duplicates in their own repository and publish a new version.\n"
+            ),
             style="bold red",
         )
         for dup in package_duplicates:

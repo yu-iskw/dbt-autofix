@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 .nox
+
+# IDE files
+.vscode/launch.json
