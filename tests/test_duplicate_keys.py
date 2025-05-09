@@ -64,7 +64,7 @@ models:
         yield project_dir
 
 
-def test_find_duplicate_keys(temp_project_dir):
+def test_find_duplicate_keys(temp_project_dir: Path):
     project_duplicates, package_duplicates = find_duplicate_keys(temp_project_dir)
 
     # Debug prints
@@ -106,7 +106,7 @@ packages-install-path: dbt_packages
         assert len(package_duplicates) == 0
 
 
-def test_find_duplicate_keys_yaml_extension(temp_project_dir):
+def test_find_duplicate_keys_yaml_extension(temp_project_dir: Path):
     # Create a .yaml file with duplicates
     models_dir = temp_project_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
@@ -121,7 +121,7 @@ models:
     description: "Other yaml description"
 """)
 
-    project_duplicates, package_duplicates = find_duplicate_keys(temp_project_dir)
+    project_duplicates, _ = find_duplicate_keys(temp_project_dir)
 
     # Debug prints
     print("\nYAML extension test duplicates found:", len(project_duplicates))

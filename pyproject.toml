@@ -39,3 +39,19 @@ indent-width = 4
 # McCabe complexity (`C901`) by default.
 select = ["E4", "E7", "E9", "F", "I"]
 ignore = []
+
+
+[tool.pyright]
+include = [
+    "dbt_autofix",
+    "tests",
+]
+exclude = []
+pythonVersion = "3.9"
+
+typeCheckingMode = "basic"
+reportPrivateUsage = false
+reportUnusedVariable = true
+reportUnusedFunction = true
+reportUnusedExpression = true
+reportMissingImports = false
