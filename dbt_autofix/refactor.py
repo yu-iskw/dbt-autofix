@@ -268,11 +268,11 @@ def process_yaml_files_except_dbt_project(
                 yml_refactor_result.refactored = True
                 yml_refactor_result.refactored_yaml = changeset_remove_duplicate_keys_result.refactored_yaml
 
-            changeset_refactor_result = changeset_refactor_yml_str(yml_refactor_result.refactored_yaml)
-            if changeset_refactor_result.refactored:
-                yml_refactor_result.refactors.append(changeset_refactor_result)
-                yml_refactor_result.refactored = True
-                yml_refactor_result.refactored_yaml = changeset_refactor_result.refactored_yaml
+            # changeset_refactor_result = changeset_refactor_yml_str(yml_refactor_result.refactored_yaml)
+            # if changeset_refactor_result.refactored:
+            #     yml_refactor_result.refactors.append(changeset_refactor_result)
+            #     yml_refactor_result.refactored = True
+            #     yml_refactor_result.refactored_yaml = changeset_refactor_result.refactored_yaml
 
             yaml_results.append(yml_refactor_result)
 
@@ -397,13 +397,13 @@ def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tupl
             # if the field is not under config, move it under config
             if field not in node_config:
                 node_config.update({field: node[field]})
-                refactor_logs.append(f"{pretty_node_type} {node['name']} - Field '{field}' moved under config.")
+                refactor_logs.append(f"{pretty_node_type} '{node['name']}' - Field '{field}' moved under config.")
                 node["config"] = node_config
 
             # if the field is already under config, it will take precedence there, so we remove it from the top level
             else:
                 refactor_logs.append(
-                    f"Field '{field}' is already under config, it has been removed from the top level."
+                    f"{pretty_node_type} '{node['name']}' - Field '{field}' is already under config, it has been removed from the top level."
                 )
             del node[field]
 
@@ -418,11 +418,11 @@ def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tupl
             )
             if closest_match:
                 refactor_logs.append(
-                    f"{pretty_node_type} {node['name']} - Field '{field}' is not allowed, but '{closest_match[0]}' is. Moved as-is under config.meta but you might want to rename it and move it under config."
+                    f"{pretty_node_type} '{node['name']}' - Field '{field}' is not allowed, but '{closest_match[0]}' is. Moved as-is under config.meta but you might want to rename it and move it under config."
                 )
             else:
                 refactor_logs.append(
-                    f"{pretty_node_type} {node['name']} - Field '{field}' is not an allowed config - Moved under config.meta."
+                    f"{pretty_node_type} '{node['name']}' - Field '{field}' is not an allowed config - Moved under config.meta."
                 )
             node_meta = node.get("config", {}).get("meta", {})
             node_meta.update({field: node[field]})
@@ -432,7 +432,7 @@ def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tupl
     if existing_meta:
         refactored = True
         refactor_logs.append(
-            f"{pretty_node_type} {node['name']} - Moved all the meta fields under config.meta and merged with existing config.meta."
+            f"{pretty_node_type} '{node['name']}' - Moved all the meta fields under config.meta and merged with existing config.meta."
         )
         if "config" not in node:
             node["config"] = {"meta": {}}
