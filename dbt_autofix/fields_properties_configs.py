@@ -116,6 +116,8 @@ models_allowed_config = AllowedConfig(
             "docs",
             "access",
             "group",
+            # new
+            "freshness",
         ]
     ),
     allowed_properties=set(
@@ -131,7 +133,6 @@ models_allowed_config = AllowedConfig(
             "columns",
             "time_spine",
             "versions",
-            "freshness",
         ]
     ),
 )
