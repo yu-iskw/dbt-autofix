@@ -9,6 +9,7 @@ dependencies = [
     "typer>=0.15.2",
     "yamllint>=1.37.0",
     "rich>=13.7.0",
+    "click<8.2.0",
     "ruamel-yaml>=0.18.10",
     "ruamel-yaml-string>=0.1.1",
 ]

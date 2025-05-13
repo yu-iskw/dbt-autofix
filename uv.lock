@@ -146,6 +146,7 @@ name = "dbt-autofix"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "ruamel-yaml" },
@@ -164,6 +165,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = "<8.2.0" },
     { name = "nox", marker = "extra == 'test'" },
     { name = "pre-commit", marker = "extra == 'test'", specifier = ">=4.2.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.2.0" },
