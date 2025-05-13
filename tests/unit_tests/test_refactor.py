@@ -394,6 +394,7 @@ class TestYamlRefactoring:
         # Check that meta was merged correctly
         assert model["config"]["meta"]["abc"] == 123
 
+    @pytest.mark.xfail(reason="waiting for JSON schema")
     def test_changeset_all_yml_files(self, temp_project_dir: Path, schema_yml_with_config_fields: str):
         # Create multiple YAML files
         models_dir = temp_project_dir / "models"
