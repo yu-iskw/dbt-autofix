@@ -65,6 +65,13 @@ class YMLRuleRefactorResult:
     original_yaml: str
     refactor_logs: list[str]
 
+    def to_dict(self) -> dict:
+        ret_dict = {
+            "rule_name": self.rule_name,
+            "refactor_logs": self.refactor_logs,
+        }
+        return ret_dict
+
 
 @dataclass
 class YMLRefactorResult:
@@ -87,9 +94,9 @@ class YMLRefactorResult:
             to_print = {
                 "mode": "dry_run" if self.dry_run else "applied",
                 "file_path": str(self.file_path),
-                "refactors": list(set([refactor.rule_name for refactor in self.refactors if refactor.refactored])),
+                "refactors": [refactor.to_dict() for refactor in self.refactors if refactor.refactored],
             }
-            console.print(json.dumps(to_print))
+            print(json.dumps(to_print))  # noqa: T201
             return
 
         console.print(
@@ -110,6 +117,13 @@ class SQLRuleRefactorResult:
     refactored_content: str
     original_content: str
     refactor_logs: list[str]
+
+    def to_dict(self) -> dict:
+        ret_dict = {
+            "rule_name": self.rule_name,
+            "refactor_logs": self.refactor_logs,
+        }
+        return ret_dict
 
 
 @dataclass
@@ -133,9 +147,9 @@ class SQLRefactorResult:
             to_print = {
                 "mode": "dry_run" if self.dry_run else "applied",
                 "file_path": str(self.file_path),
-                "refactors": list(set([refactor.rule_name for refactor in self.refactors if refactor.refactored])),
+                "refactors": [refactor.to_dict() for refactor in self.refactors if refactor.refactored],
             }
-            console.print(json.dumps(to_print))
+            print(json.dumps(to_print))  # noqa: T201
             return
 
         console.print(
@@ -573,7 +587,7 @@ def rec_check_yaml_path(
     if not path.exists():
         return yml_dict, [] if refactor_logs is None else refactor_logs
 
-    yml_dict_copy = yml_dict.copy()
+    yml_dict_copy = yml_dict.copy() if yml_dict else {}
     for k, v in yml_dict_copy.items():
         if k in node_fields.allowed_config_fields_dbt_project and not (path / k).exists():
             new_k = f"+{k}"
@@ -597,7 +611,7 @@ def changeset_dbt_project_prefix_plus_for_config(yml_str: str, path: Path) -> YM
     yml_dict = DbtYAML().load(yml_str) or {}
 
     for node_type, node_fields in dbtproject_specs_per_node_type.items():
-        for k, v in yml_dict.get(node_type, {}).copy().items():
+        for k, v in (yml_dict.get(node_type) or {}).copy().items():
             # check if this is the project name
             if k == yml_dict["name"]:
                 new_dict, refactor_logs = rec_check_yaml_path(v, path / node_type, node_fields)
