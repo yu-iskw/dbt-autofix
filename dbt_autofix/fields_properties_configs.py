@@ -263,22 +263,39 @@ fields_per_node_type = {
 }
 
 
-def print_matrix():
+def print_matrix():  # noqa: PLR0912
+    from dbt_autofix.retrieve_schemas import yaml_specs_per_node_type
+
     results = dict()
     for node_type, fields_config in fields_per_node_type.items():
         allowed_config_fields = fields_config.allowed_config_fields
         for field in allowed_config_fields:
             if field not in results:
-                results[field] = {node_type: "config"}
+                results[field] = {f"{node_type}-bestguess": "config"}
             else:
-                results[field].update({node_type: "config"})
+                results[field].update({f"{node_type}-bestguess": "config"})
 
         allowed_properties = fields_config.allowed_properties
         for property in allowed_properties:
             if property not in results:
-                results[property] = {node_type: "property"}
+                results[property] = {f"{node_type}-bestguess": "property"}
             else:
-                results[property].update({node_type: "property"})
+                results[property].update({f"{node_type}-bestguess": "property"})
+
+    for node_type, fields_config in yaml_specs_per_node_type.items():
+        allowed_config_fields = fields_config.allowed_config_fields
+        for field in allowed_config_fields:
+            if field not in results:
+                results[field] = {f"{node_type}-fusion": "config"}
+            else:
+                results[field].update({f"{node_type}-fusion": "config"})
+
+        allowed_properties = fields_config.allowed_properties
+        for property in allowed_properties:
+            if property not in results:
+                results[property] = {f"{node_type}-fusion": "property"}
+            else:
+                results[property].update({f"{node_type}-fusion": "property"})
 
     # Assuming your dictionary is named 'results'
     with open("config_resources.csv", "w", newline="") as csvfile:

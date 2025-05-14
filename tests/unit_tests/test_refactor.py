@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 from yaml import safe_load
 
-from dbt_autofix.fields_properties_configs import fields_per_node_type
 from dbt_autofix.refactor import (
     SQLRefactorResult,
     YMLRefactorResult,
@@ -16,6 +15,7 @@ from dbt_autofix.refactor import (
     rec_check_yaml_path,
     remove_unmatched_endings,
 )
+from dbt_autofix.retrieve_schemas import dbtproject_specs_per_node_type
 
 
 @pytest.fixture
@@ -131,7 +131,7 @@ models:
   - name: my_first_dbt_model
     description: "A starter dbt model"
     materialize: table  # close to 'materialized'
-    zorderr: 30  # close to 'zorder'
+    full-refresh: false  # close to 'full_refresh'
     config:
       meta:
         abc: 123
@@ -141,6 +141,37 @@ models:
         data_tests:
           - unique
           - not_null
+"""
+
+
+@pytest.fixture
+def schema_yml_with_nested_sources():
+    return """
+version: 2
+
+sources:
+  - name: my_first_dbt_source
+    description: "A starter dbt source"
+    meta:
+      abc: 456
+    config:
+      event_time: my_time_field
+    tables:
+      - name: my_first_dbt_table
+        description: "A starter dbt table"
+        config:
+          enabled: true
+          event_time: my_other_time_field
+        meta:
+          abc: 123
+      - name: my_second_dbt_table
+        description: "A starter dbt table"
+        database: my_db
+        schema: my_schema
+        config:
+          event_time: my_other_time_field
+        meta:
+          abc: 123
 """
 
 
@@ -468,17 +499,51 @@ class TestYamlRefactoring:
 
         # Check that the original fields are removed from top level
         assert "materialize" not in model
-        assert "zorder" not in model
+        assert "full-refresh" not in model
 
         # Check that fields were moved under config.meta
         assert "config" in model
         assert "meta" in model["config"]
         assert model["config"]["meta"]["materialize"] == "table"
-        assert model["config"]["meta"]["zorderr"] == 30
+        assert model["config"]["meta"]["full-refresh"] == False  # noqa: E712
 
         # Check that appropriate logs were generated
         assert any("'materialize' is not allowed, but 'materialized' is" in log for log in result.refactor_logs)
-        assert any("'zorderr' is not allowed, but 'zorder' is" in log for log in result.refactor_logs)
+        assert any("'full-refresh' is not allowed, but 'full_refresh' is" in log for log in result.refactor_logs)
+
+    def test_changeset_refactor_yml_with_nested_sources(
+        self, temp_project_dir: Path, schema_yml_with_nested_sources: str
+    ):
+        # Create a test YAML file
+        yml_file = temp_project_dir / "models" / "sources.yml"
+        yml_file.parent.mkdir(parents=True, exist_ok=True)
+        yml_file.write_text(schema_yml_with_nested_sources)
+
+        # Get the refactored result
+        yml_str = yml_file.read_text()
+        result = changeset_refactor_yml_str(yml_str)
+
+        # Check that the file was refactored
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that config fields were moved under config
+        source = safe_load(result.refactored_yaml)["sources"][0]
+
+        assert "meta" not in source
+        assert source["config"]["event_time"] == "my_time_field"
+        assert source["config"]["meta"]["abc"] == 456
+
+        assert "tables" in source
+        assert len(source["tables"]) == 2
+        assert source["tables"][0]["config"]["event_time"] == "my_other_time_field"
+        assert source["tables"][0]["config"]["meta"]["abc"] == 123
+        assert source["tables"][0]["config"]["enabled"] == True  # noqa: E712
+
+        assert source["tables"][1]["database"] == "my_db"
+        assert source["tables"][1]["schema"] == "my_schema"
+        assert source["tables"][1]["config"]["event_time"] == "my_other_time_field"
+        assert source["tables"][1]["config"]["meta"]["abc"] == 123
 
 
 class TestYamlOutput:
@@ -517,7 +582,9 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir, fields_per_node_type["models"])
+        new_yml, refactor_logs = rec_check_yaml_path(
+            test_data, temp_project_dir, dbtproject_specs_per_node_type["models"]
+        )
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
@@ -531,7 +598,9 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir, fields_per_node_type["models"])
+        new_yml, refactor_logs = rec_check_yaml_path(
+            test_data, temp_project_dir, dbtproject_specs_per_node_type["models"]
+        )
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
@@ -545,7 +614,9 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir, fields_per_node_type["models"])
+        new_yml, refactor_logs = rec_check_yaml_path(
+            test_data, temp_project_dir, dbtproject_specs_per_node_type["models"]
+        )
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
@@ -559,7 +630,9 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.parent.mkdir(parents=True, exist_ok=True)
         new_file.write_text("select 1 as id")
 
-        new_yml, refactor_logs = rec_check_yaml_path(test_data, temp_project_dir, fields_per_node_type["models"])
+        new_yml, refactor_logs = rec_check_yaml_path(
+            test_data, temp_project_dir, dbtproject_specs_per_node_type["models"]
+        )
         assert expected_data == new_yml
         assert len(refactor_logs) == 0
 

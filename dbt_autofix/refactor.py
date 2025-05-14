@@ -12,7 +12,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.compat import StringIO
 from yaml import safe_load
 
-from dbt_autofix.fields_properties_configs import AllowedConfig, fields_per_node_type
+from dbt_autofix.retrieve_schemas import DbtProjectSpecs, dbtproject_specs_per_node_type, yaml_specs_per_node_type
 
 console = Console()
 error_console = Console(stderr=True)
@@ -387,10 +387,10 @@ def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tupl
     copy_node = node.copy()
 
     for field in copy_node:
-        if field in fields_per_node_type[node_type].allowed_properties:
+        if field in yaml_specs_per_node_type[node_type].allowed_properties:
             continue
 
-        if field in fields_per_node_type[node_type].allowed_config_fields_without_meta:
+        if field in yaml_specs_per_node_type[node_type].allowed_config_fields_without_meta:
             refactored = True
             node_config = node.get("config", {})
 
@@ -407,12 +407,12 @@ def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tupl
                 )
             del node[field]
 
-        if field not in fields_per_node_type[node_type].allowed_config_fields:
+        if field not in yaml_specs_per_node_type[node_type].allowed_config_fields:
             refactored = True
             closest_match = difflib.get_close_matches(
                 field,
-                fields_per_node_type[node_type].allowed_config_fields.union(
-                    set(fields_per_node_type[node_type].allowed_properties)
+                yaml_specs_per_node_type[node_type].allowed_config_fields.union(
+                    set(yaml_specs_per_node_type[node_type].allowed_properties)
                 ),
                 1,
             )
@@ -456,11 +456,7 @@ def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
     refactor_logs: List[str] = []
     yml_dict = DbtYAML().load(yml_str) or {}
 
-    for node_type in fields_per_node_type:
-        # we don't refactor the tests as they don't have meta in YAML etc...
-        if node_type == "tests":
-            continue
-
+    for node_type in yaml_specs_per_node_type:
         if node_type in yml_dict:
             for i, node in enumerate(yml_dict[node_type]):
                 processed_node, node_refactored, node_refactor_logs = restructure_yaml_keys_for_node(node, node_type)
@@ -468,6 +464,19 @@ def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
                     refactored = True
                     yml_dict[node_type][i] = processed_node
                     refactor_logs.extend(node_refactor_logs)
+
+    # for sources, the config can be set at the table level as well
+    if "sources" in yml_dict:
+        for i, source in enumerate(yml_dict["sources"]):
+            if "tables" in source:
+                for j, table in enumerate(source["tables"]):
+                    processed_source_table, source_table_refactored, source_table_refactor_logs = (
+                        restructure_yaml_keys_for_node(table, "sources")
+                    )
+                    if source_table_refactored:
+                        refactored = True
+                        yml_dict["sources"][i]["tables"][j] = processed_source_table
+                        refactor_logs.extend(source_table_refactor_logs)
 
     return YMLRuleRefactorResult(
         rule_name="restructure_yaml_keys",
@@ -554,7 +563,7 @@ def changeset_dbt_project_remove_deprecated_config(yml_str: str) -> YMLRuleRefac
 def rec_check_yaml_path(
     yml_dict: Dict[str, Any],
     path: Path,
-    node_fields: AllowedConfig,
+    node_fields: DbtProjectSpecs,
     refactor_logs: Optional[List[str]] = None,
 ):
     # we can't set refactor_logs as an empty list
@@ -566,7 +575,7 @@ def rec_check_yaml_path(
 
     yml_dict_copy = yml_dict.copy()
     for k, v in yml_dict_copy.items():
-        if k in node_fields.allowed_config_fields and not (path / k).exists():
+        if k in node_fields.allowed_config_fields_dbt_project and not (path / k).exists():
             new_k = f"+{k}"
             yml_dict[new_k] = v
             log_msg = f"Added '+' in front of the nested config '{k}'"
@@ -587,7 +596,7 @@ def changeset_dbt_project_prefix_plus_for_config(yml_str: str, path: Path) -> YM
 
     yml_dict = DbtYAML().load(yml_str) or {}
 
-    for node_type, node_fields in fields_per_node_type.items():
+    for node_type, node_fields in dbtproject_specs_per_node_type.items():
         for k, v in yml_dict.get(node_type, {}).copy().items():
             # check if this is the project name
             if k == yml_dict["name"]:
@@ -596,7 +605,7 @@ def changeset_dbt_project_prefix_plus_for_config(yml_str: str, path: Path) -> YM
                 all_refactor_logs.extend(refactor_logs)
 
             # top level config
-            elif k in node_fields.allowed_config_fields:
+            elif k in node_fields.allowed_config_fields_dbt_project:
                 all_refactor_logs.append(f"Added '+' in front of top level config '{k}'")
                 new_k = f"+{k}"
                 yml_dict[node_type][new_k] = v

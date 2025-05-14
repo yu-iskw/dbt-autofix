@@ -1,0 +1,75 @@
+import filecmp
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from dbt_autofix.main import refactor_yml
+
+dbt_projects_dir_name = "dbt_projects"
+postfix_expected = "_expected"
+
+
+def get_project_folders():
+    dbt_projects_dir = os.path.join(os.path.dirname(__file__), dbt_projects_dir_name)
+    return [
+        folder
+        for folder in os.listdir(dbt_projects_dir)
+        if os.path.isdir(os.path.join(dbt_projects_dir, folder)) and not folder.endswith(postfix_expected)
+    ]
+
+
+def compare_dirs(dir1, dir2):
+    comparison = filecmp.dircmp(dir1, dir2)
+
+    # Check for files that exist in only one directory
+    if comparison.left_only or comparison.right_only:
+        pytest.fail(
+            f"Files differ between {dir1} and {dir2}\n"
+            f"Only in actual: {comparison.left_only}\n"
+            f"Only in expected: {comparison.right_only}"
+        )
+
+    # Check for files that differ
+    if comparison.diff_files:
+        pytest.fail(f"Content differs in files: {comparison.diff_files}")
+
+    # Recursively check subdirectories
+    for subdir in comparison.common_dirs:
+        compare_dirs(os.path.join(dir1, subdir), os.path.join(dir2, subdir))
+
+
+@pytest.mark.parametrize("project_folder", get_project_folders())
+def test_project_refactor(project_folder, request):
+    dbt_projects_dir = os.path.join(os.path.dirname(__file__), dbt_projects_dir_name)
+    source_dir = os.path.join(dbt_projects_dir, project_folder)
+
+    # Create a temporary directory for the project
+    temp_dir = tempfile.mkdtemp(prefix=f"dbt_autofix_test_{project_folder}_")
+
+    # Copy the project files to the temporary directory
+    project_path = os.path.join(temp_dir, project_folder)
+    shutil.copytree(source_dir, project_path, dirs_exist_ok=True)
+    print(f"Copied project '{project_folder}' to temporary directory: {temp_dir}")
+
+    # Run refactor_yml on the project
+    refactor_yml(path=Path(project_path), dry_run=False)
+
+    # Compare with expected output
+    expected_dir = os.path.join(dbt_projects_dir, f"{project_folder}{postfix_expected}")
+    if not os.path.exists(expected_dir):
+        pytest.fail(f"Expected output directory not found: {expected_dir}")
+
+    compare_dirs(project_path, expected_dir)
+
+    # Clean up temporary directory after test
+    def cleanup_temp_dir():
+        try:
+            shutil.rmtree(temp_dir)
+            print(f"Cleaned up temporary directory: {temp_dir}")
+        except Exception as e:
+            print(f"Failed to clean up {temp_dir}: {e}")
+
+    request.addfinalizer(cleanup_temp_dir)
