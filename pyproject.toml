@@ -1,7 +1,6 @@
 [project]
 name = "dbt-autofix"
-version = "0.1.0"
-description = "Add your description here"
+description = "CLI to autofix deprecations in dbt projects"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
@@ -12,7 +11,10 @@ dependencies = [
     "click<8.2.0",
     "ruamel-yaml>=0.18.10",
     "ruamel-yaml-string>=0.1.1",
+    "httpx>=0.28.1",
 ]
+
+dynamic = ["version"]
 
 [tool.uv]
 package = true
@@ -28,6 +30,16 @@ test = [
     "pre-commit>=4.2.0",
     "nox",
 ]
+
+[tool.pdm.build]
+includes = ["dbt_autofix"]
+
+[tool.pdm.version]
+source = "scm"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
 
 
 [tool.ruff]
