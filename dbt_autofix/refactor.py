@@ -65,6 +65,13 @@ class YMLRuleRefactorResult:
     original_yaml: str
     refactor_logs: list[str]
 
+    def to_dict(self) -> dict:
+        ret_dict = {
+            "rule_name": self.rule_name,
+            "refactor_logs": self.refactor_logs,
+        }
+        return ret_dict
+
 
 @dataclass
 class YMLRefactorResult:
@@ -87,9 +94,9 @@ class YMLRefactorResult:
             to_print = {
                 "mode": "dry_run" if self.dry_run else "applied",
                 "file_path": str(self.file_path),
-                "refactors": list(set([refactor.rule_name for refactor in self.refactors if refactor.refactored])),
+                "refactors": [refactor.to_dict() for refactor in self.refactors if refactor.refactored],
             }
-            console.print(json.dumps(to_print))
+            print(json.dumps(to_print))  # noqa: T201
             return
 
         console.print(
@@ -110,6 +117,13 @@ class SQLRuleRefactorResult:
     refactored_content: str
     original_content: str
     refactor_logs: list[str]
+
+    def to_dict(self) -> dict:
+        ret_dict = {
+            "rule_name": self.rule_name,
+            "refactor_logs": self.refactor_logs,
+        }
+        return ret_dict
 
 
 @dataclass
@@ -133,9 +147,9 @@ class SQLRefactorResult:
             to_print = {
                 "mode": "dry_run" if self.dry_run else "applied",
                 "file_path": str(self.file_path),
-                "refactors": list(set([refactor.rule_name for refactor in self.refactors if refactor.refactored])),
+                "refactors": [refactor.to_dict() for refactor in self.refactors if refactor.refactored],
             }
-            console.print(json.dumps(to_print))
+            print(json.dumps(to_print))  # noqa: T201
             return
 
         console.print(
