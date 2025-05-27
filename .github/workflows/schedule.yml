@@ -1,0 +1,15 @@
+name: Run Nox every hour to check JSON schema parsing
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+
+jobs:
+  nox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - uses: fjwillemsen/setup-nox2@v3.0.0
+      - run: nox --session check_latest_schema-3.13
