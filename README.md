@@ -20,6 +20,16 @@ This tool can help teams clean up their dbt projects so that it conforms with db
 
 ## Installation
 
+### From PyPi
+
+- with uv/uvx (uv needs to be installed before): 
+  - to run the latest version of the tool `uvx dbt-autofix`
+  - to run a specific version of the tool `uvx dbt-autofix@0.1.2`
+  - to install the tool as a dedicated CLI; `uv tool install dbt-autofix`
+- with pip: In a venv, `pip install dbt-autofix` and then `dbt-autofix ...` 
+
+### From the source repo
+
 To run it from the git repo directly, install `uv` and then
 
 run the tool directly
@@ -38,6 +48,7 @@ uv tool install --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-autof
   - add `--path <mypath>` to configure the path of the dbt project (defaults to `.`)
   - add `--dry-run` for running in dry run mode
   - add `--json` to get resulting data in a JSONL format
+  - add `--json-schema-version v2.0.0-beta.4` to get the JSON schema from a specific Fusion release (by default we pick the latest)
 
 Each JSON object will have the following keys:
 

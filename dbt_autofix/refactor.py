@@ -14,10 +14,7 @@ from yaml import safe_load
 
 from dbt_autofix.retrieve_schemas import (
     DbtProjectSpecs,
-    dbtproject_specs_per_node_type,
-    nodes_with_owner,
-    owner_properties,
-    yaml_specs_per_node_type,
+    SchemaSpecs,
 )
 
 console = Console()
@@ -255,12 +252,15 @@ def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:  # noqa
     return result, logs
 
 
-def restructure_owner_properties(node: Dict[str, Any], node_type: str) -> Tuple[Dict[str, Any], bool, List[str]]:
+def restructure_owner_properties(
+    node: Dict[str, Any], node_type: str, schema_specs: SchemaSpecs
+) -> Tuple[Dict[str, Any], bool, List[str]]:
     """Restructure owner properties according to dbt conventions.
 
     Args:
         node: The node dictionary to process
         node_type: The type of node to process
+        schema_specs: The schema specifications to use
 
     Returns:
         Tuple containing:
@@ -272,41 +272,36 @@ def restructure_owner_properties(node: Dict[str, Any], node_type: str) -> Tuple[
     refactor_logs: List[str] = []
     pretty_node_type = node_type[:-1].title()
 
-    if node_type not in nodes_with_owner:
-        return node, refactored, refactor_logs
+    if "owner" in node and isinstance(node["owner"], dict):
+        owner = node["owner"]
+        owner_copy = owner.copy()
 
-    if "owner" not in node:
-        return node, refactored, refactor_logs
-
-    owner = node["owner"]
-    if not isinstance(owner, dict):
-        return node, refactored, refactor_logs
-
-    # Create a copy of owner to avoid modifying while iterating
-    owner_copy = owner.copy()
-    for key in owner_copy:
-        if key not in owner_properties:
-            refactored = True
-            # Move the key to config.meta
-            if "config" not in node:
-                node["config"] = {"meta": {}}
-            elif "meta" not in node["config"]:
-                node["config"]["meta"] = {}
-
-            node["config"]["meta"][key] = owner[key]
-            del owner[key]
-            refactor_logs.append(f"{pretty_node_type} '{node['name']}' - Owner field '{key}' moved under config.meta.")
+        for field in owner_copy:
+            if field not in schema_specs.owner_properties:
+                refactored = True
+                if "config" not in node:
+                    node["config"] = {"meta": {}}
+                if "meta" not in node["config"]:
+                    node["config"]["meta"] = {}
+                node["config"]["meta"][field] = owner[field]
+                del owner[field]
+                refactor_logs.append(
+                    f"{pretty_node_type} '{node['name']}' - Owner field '{field}' moved under config.meta."
+                )
 
     return node, refactored, refactor_logs
 
 
 def process_yaml_files_except_dbt_project(
-    path: Path, model_paths: Iterable[str], dry_run: bool = False
+    path: Path, model_paths: Iterable[str], schema_specs: SchemaSpecs, dry_run: bool = False
 ) -> List[YMLRefactorResult]:
     """Process all YAML files in the project
 
     Args:
         path: Project root path
+        model_paths: Paths to process
+        schema_specs: The schema specifications to use
+        dry_run: Whether to perform a dry run
     """
     yaml_results: List[YMLRefactorResult] = []
 
@@ -333,13 +328,15 @@ def process_yaml_files_except_dbt_project(
                 yml_refactor_result.refactored = True
                 yml_refactor_result.refactored_yaml = changeset_remove_duplicate_keys_result.refactored_yaml
 
-            # changeset_refactor_result = changeset_refactor_yml_str(yml_refactor_result.refactored_yaml)
+            # changeset_refactor_result = changeset_refactor_yml_str(yml_refactor_result.refactored_yaml, schema_specs)
             # if changeset_refactor_result.refactored:
             #     yml_refactor_result.refactors.append(changeset_refactor_result)
             #     yml_refactor_result.refactored = True
             #     yml_refactor_result.refactored_yaml = changeset_refactor_result.refactored_yaml
 
-            changeset_owner_properties_result = changeset_owner_properties_yml_str(yml_refactor_result.refactored_yaml)
+            changeset_owner_properties_result = changeset_owner_properties_yml_str(
+                yml_refactor_result.refactored_yaml, schema_specs
+            )
             if changeset_owner_properties_result.refactored:
                 yml_refactor_result.refactors.append(changeset_owner_properties_result)
                 yml_refactor_result.refactored = True
@@ -351,7 +348,7 @@ def process_yaml_files_except_dbt_project(
 
 
 def process_dbt_project_yml(
-    path: Path, dry_run: bool = False, exclude_dbt_project_keys: bool = False
+    path: Path, schema_specs: SchemaSpecs, dry_run: bool = False, exclude_dbt_project_keys: bool = False
 ) -> YMLRefactorResult:
     """Process dbt_project.yml"""
     yml_str = (path / "dbt_project.yml").read_text()
@@ -381,7 +378,7 @@ def process_dbt_project_yml(
         yml_refactor_result.refactored_yaml = changeset_dbt_project_remove_deprecated_config_result.refactored_yaml
 
     changeset_dbt_project_prefix_plus_for_config_result = changeset_dbt_project_prefix_plus_for_config(
-        yml_refactor_result.refactored_yaml, path
+        yml_refactor_result.refactored_yaml, path, schema_specs
     )
     if changeset_dbt_project_prefix_plus_for_config_result.refactored:
         yml_refactor_result.refactors.append(changeset_dbt_project_prefix_plus_for_config_result)
@@ -439,12 +436,15 @@ def process_sql_files(path: Path, sql_paths: Iterable[str], dry_run: bool = Fals
     return results
 
 
-def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tuple[Dict[str, Any], bool, List[str]]:
+def restructure_yaml_keys_for_node(
+    node: Dict[str, Any], node_type: str, schema_specs: SchemaSpecs
+) -> Tuple[Dict[str, Any], bool, List[str]]:
     """Restructure YAML keys according to dbt conventions.
 
     Args:
         node: The node dictionary to process
         node_type: The type of node to process
+        schema_specs: The schema specifications to use
 
     Returns:
         Tuple containing:
@@ -461,10 +461,10 @@ def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tupl
     copy_node = node.copy()
 
     for field in copy_node:
-        if field in yaml_specs_per_node_type[node_type].allowed_properties:
+        if field in schema_specs.yaml_specs_per_node_type[node_type].allowed_properties:
             continue
 
-        if field in yaml_specs_per_node_type[node_type].allowed_config_fields_without_meta:
+        if field in schema_specs.yaml_specs_per_node_type[node_type].allowed_config_fields_without_meta:
             refactored = True
             node_config = node.get("config", {})
 
@@ -481,12 +481,12 @@ def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tupl
                 )
             del node[field]
 
-        if field not in yaml_specs_per_node_type[node_type].allowed_config_fields:
+        if field not in schema_specs.yaml_specs_per_node_type[node_type].allowed_config_fields:
             refactored = True
             closest_match = difflib.get_close_matches(
                 field,
-                yaml_specs_per_node_type[node_type].allowed_config_fields.union(
-                    set(yaml_specs_per_node_type[node_type].allowed_properties)
+                schema_specs.yaml_specs_per_node_type[node_type].allowed_config_fields.union(
+                    set(schema_specs.yaml_specs_per_node_type[node_type].allowed_properties)
                 ),
                 1,
             )
@@ -519,20 +519,20 @@ def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tupl
     return node, refactored, refactor_logs
 
 
-def changeset_owner_properties_yml_str(yml_str: str) -> YMLRuleRefactorResult:
+def changeset_owner_properties_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:
     """Generates a refactored YAML string from a single YAML file
     - moves all the owner fields that are not in owner_properties under config.meta
     """
-    from dbt_autofix.retrieve_schemas import nodes_with_owner
-
     refactored = False
     refactor_logs: List[str] = []
     yml_dict = DbtYAML().load(yml_str) or {}
 
-    for node_type in nodes_with_owner:
+    for node_type in schema_specs.nodes_with_owner:
         if node_type in yml_dict:
             for i, node in enumerate(yml_dict[node_type]):
-                processed_node, node_refactored, node_refactor_logs = restructure_owner_properties(node, node_type)
+                processed_node, node_refactored, node_refactor_logs = restructure_owner_properties(
+                    node, node_type, schema_specs
+                )
                 if node_refactored:
                     refactored = True
                     yml_dict[node_type][i] = processed_node
@@ -547,7 +547,7 @@ def changeset_owner_properties_yml_str(yml_str: str) -> YMLRuleRefactorResult:
     )
 
 
-def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
+def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:
     """Generates a refactored YAML string from a single YAML file
     - moves all the config fields under config
     - moves all the meta fields under config.meta and merges with existing config.meta
@@ -558,10 +558,12 @@ def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
     refactor_logs: List[str] = []
     yml_dict = DbtYAML().load(yml_str) or {}
 
-    for node_type in yaml_specs_per_node_type:
+    for node_type in schema_specs.yaml_specs_per_node_type:
         if node_type in yml_dict:
             for i, node in enumerate(yml_dict[node_type]):
-                processed_node, node_refactored, node_refactor_logs = restructure_yaml_keys_for_node(node, node_type)
+                processed_node, node_refactored, node_refactor_logs = restructure_yaml_keys_for_node(
+                    node, node_type, schema_specs
+                )
                 if node_refactored:
                     refactored = True
                     yml_dict[node_type][i] = processed_node
@@ -573,7 +575,7 @@ def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
             if "tables" in source:
                 for j, table in enumerate(source["tables"]):
                     processed_source_table, source_table_refactored, source_table_refactor_logs = (
-                        restructure_yaml_keys_for_node(table, "sources")
+                        restructure_yaml_keys_for_node(table, "sources", schema_specs)
                     )
                     if source_table_refactored:
                         refactored = True
@@ -697,19 +699,21 @@ def rec_check_yaml_path(
             else:
                 refactor_logs.append(log_msg)
             del yml_dict[k]
-        else:
+        elif isinstance(yml_dict[k], dict):
             new_dict, refactor_logs = rec_check_yaml_path(yml_dict[k], path / k, node_fields, refactor_logs)
             yml_dict[k] = new_dict
     return yml_dict, [] if refactor_logs is None else refactor_logs
 
 
-def changeset_dbt_project_prefix_plus_for_config(yml_str: str, path: Path) -> YMLRuleRefactorResult:
+def changeset_dbt_project_prefix_plus_for_config(
+    yml_str: str, path: Path, schema_specs: SchemaSpecs
+) -> YMLRuleRefactorResult:
     """Update keys for the config in dbt_project.yml under to prefix it with a `+`"""
     all_refactor_logs: List[str] = []
 
     yml_dict = DbtYAML().load(yml_str) or {}
 
-    for node_type, node_fields in dbtproject_specs_per_node_type.items():
+    for node_type, node_fields in schema_specs.dbtproject_specs_per_node_type.items():
         for k, v in (yml_dict.get(node_type) or {}).copy().items():
             # check if this is the project name
             if k == yml_dict["name"]:
@@ -765,6 +769,7 @@ def get_dbt_paths(path: Path) -> Set[str]:
 
 def changeset_all_sql_yml_files(
     path: Path,
+    schema_specs: SchemaSpecs,
     dry_run: bool = False,
     exclude_dbt_project_keys: bool = False,
 ) -> Tuple[List[YMLRefactorResult], List[SQLRefactorResult]]:
@@ -772,6 +777,9 @@ def changeset_all_sql_yml_files(
 
     Args:
         path: Project root path
+        schema_specs: The schema specifications to use
+        dry_run: Whether to perform a dry run
+        exclude_dbt_project_keys: Whether to exclude dbt project keys
 
     Returns:
         Tuple containing:
@@ -783,10 +791,10 @@ def changeset_all_sql_yml_files(
     sql_results = process_sql_files(path, dbt_paths, dry_run)
 
     # Process YAML files
-    yaml_results = process_yaml_files_except_dbt_project(path, dbt_paths, dry_run)
+    yaml_results = process_yaml_files_except_dbt_project(path, dbt_paths, schema_specs, dry_run)
 
     # Process dbt_project.yml
-    dbt_project_yml_result = process_dbt_project_yml(path, dry_run, exclude_dbt_project_keys)
+    dbt_project_yml_result = process_dbt_project_yml(path, schema_specs, dry_run, exclude_dbt_project_keys)
 
     return [*yaml_results, dbt_project_yml_result], sql_results
 

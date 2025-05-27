@@ -16,7 +16,7 @@ from dbt_autofix.refactor import (
     rec_check_yaml_path,
     remove_unmatched_endings,
 )
-from dbt_autofix.retrieve_schemas import dbtproject_specs_per_node_type
+from dbt_autofix.retrieve_schemas import SchemaSpecs
 
 
 @pytest.fixture
@@ -34,6 +34,11 @@ model-paths: ["models"]
         models_dir.mkdir(parents=True, exist_ok=True)
 
         yield project_dir
+
+
+@pytest.fixture(scope="session")
+def schema_specs():
+    return SchemaSpecs()
 
 
 @pytest.fixture
@@ -428,24 +433,26 @@ class TestYamlRefactoring:
     """Tests for YAML refactoring functions"""
 
     def test_changeset_refactor_yml_with_config_fields(
-        self, temp_project_dir: Path, schema_yml_with_config_fields: str
+        self, temp_project_dir: Path, schema_yml_with_config_fields: str, schema_specs: SchemaSpecs
     ):
         # Create a test YAML file
         yml_file = temp_project_dir / "models" / "schema.yml"
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(schema_yml_with_config_fields)
-        yml_str = yml_file.read_text()
 
-        # Get the refactored result
-        result = changeset_refactor_yml_str(yml_str)
-
-        # Check that the file was refactored
+        # Test the refactoring
+        result = changeset_refactor_yml_str(schema_yml_with_config_fields, schema_specs)
         assert result.refactored
-        assert isinstance(result, YMLRuleRefactorResult)
+        # Now expect 4 logs: 3 fields moved + meta merge
+        assert len(result.refactor_logs) == 4
+        assert any("Field 'materialized' moved under config" in log for log in result.refactor_logs)
+        assert any("Field 'database' moved under config" in log for log in result.refactor_logs)
+        assert any("Field 'schema' moved under config" in log for log in result.refactor_logs)
+        assert any("Moved all the meta fields under config.meta" in log for log in result.refactor_logs)
 
-        # Check that config fields were moved under config
-        model = safe_load(result.refactored_yaml)["models"][0]
-
+        # Verify the refactored YAML
+        refactored_dict = safe_load(result.refactored_yaml)
+        model = refactored_dict["models"][0]
         assert "materialized" not in model
         assert "database" not in model
         assert "schema" not in model
@@ -458,7 +465,9 @@ class TestYamlRefactoring:
         assert model["config"]["meta"]["abc"] == 123
 
     @pytest.mark.xfail(reason="waiting for JSON schema")
-    def test_changeset_all_yml_files(self, temp_project_dir: Path, schema_yml_with_config_fields: str):
+    def test_changeset_all_yml_files(
+        self, temp_project_dir: Path, schema_yml_with_config_fields: str, schema_specs: SchemaSpecs
+    ):
         # Create multiple YAML files
         models_dir = temp_project_dir / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
@@ -473,7 +482,7 @@ class TestYamlRefactoring:
         sub_dir.joinpath("other_schema.yaml").write_text(schema_yml_with_config_fields)
 
         # Get all refactored results
-        results = changeset_all_sql_yml_files(temp_project_dir)
+        results = changeset_all_sql_yml_files(temp_project_dir, schema_specs)
 
         # Check that we got results for both files
         assert len(results) == 2
@@ -489,47 +498,55 @@ class TestYamlRefactoring:
         assert (sub_dir / "other_schema.yaml").resolve() in processed_files
 
     def test_changeset_refactor_yml_with_fields_top_and_under_config(
-        self, temp_project_dir: Path, schema_yml_with_fields_top_and_under_config: str
+        self, temp_project_dir: Path, schema_yml_with_fields_top_and_under_config: str, schema_specs: SchemaSpecs
     ):
         # Create a test YAML file
         yml_file = temp_project_dir / "models" / "schema.yml"
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(schema_yml_with_fields_top_and_under_config)
 
-        # Get the refactored result
-        yml_str = yml_file.read_text()
-        result = changeset_refactor_yml_str(yml_str)
-
-        # Check that the file was refactored
+        # Test the refactoring
+        result = changeset_refactor_yml_str(schema_yml_with_fields_top_and_under_config, schema_specs)
         assert result.refactored
         assert isinstance(result, YMLRuleRefactorResult)
+        # Now expect 4 logs: 1 already under config, 2 moved, 1 meta merge
+        assert len(result.refactor_logs) == 4
+        assert any("Field 'materialized' is already under config" in log for log in result.refactor_logs)
+        assert any("Field 'database' moved under config" in log for log in result.refactor_logs)
+        assert any("Field 'schema' moved under config" in log for log in result.refactor_logs)
+        assert any("Moved all the meta fields under config.meta" in log for log in result.refactor_logs)
 
-        # Check that config fields were moved under config
-        model = safe_load(result.refactored_yaml)["models"][0]
-
+        # Verify the refactored YAML
+        refactored_dict = safe_load(result.refactored_yaml)
+        model = refactored_dict["models"][0]
         assert "materialized" not in model
         assert model["config"]["materialized"] == "view"
+        assert "database" not in model
+        assert "schema" not in model
+        assert model["config"]["materialized"] == "view"  # config takes precedence
+        assert model["config"]["database"] == "my_db"
+        assert model["config"]["schema"] == "my_schema"
 
     def test_changeset_refactor_yml_with_close_matches(
-        self, temp_project_dir: Path, schema_yml_with_close_matches: str
+        self, temp_project_dir: Path, schema_yml_with_close_matches: str, schema_specs: SchemaSpecs
     ):
         # Create a test YAML file
         yml_file = temp_project_dir / "models" / "schema.yml"
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(schema_yml_with_close_matches)
 
-        # Get the refactored result
-        yml_str = yml_file.read_text()
-        result = changeset_refactor_yml_str(yml_str)
-
-        # Check that the file was refactored
+        # Test the refactoring
+        result = changeset_refactor_yml_str(schema_yml_with_close_matches, schema_specs)
         assert result.refactored
         assert isinstance(result, YMLRuleRefactorResult)
+        # Now expect 2 logs: 2 close matches
+        assert len(result.refactor_logs) == 2
+        assert any("materialize' is not allowed, but 'materialized' is" in log for log in result.refactor_logs)
+        assert any("full-refresh' is not allowed, but 'full_refresh' is" in log for log in result.refactor_logs)
 
-        # Check that fields were moved under config.meta
-        model = safe_load(result.refactored_yaml)["models"][0]
-
-        # Check that the original fields are removed from top level
+        # Verify the refactored YAML
+        refactored_dict = safe_load(result.refactored_yaml)
+        model = refactored_dict["models"][0]
         assert "materialize" not in model
         assert "full-refresh" not in model
 
@@ -537,25 +554,22 @@ class TestYamlRefactoring:
         assert "config" in model
         assert "meta" in model["config"]
         assert model["config"]["meta"]["materialize"] == "table"
-        assert model["config"]["meta"]["full-refresh"] == False  # noqa: E712
+        assert model["config"]["meta"]["full-refresh"] is False
 
         # Check that appropriate logs were generated
         assert any("'materialize' is not allowed, but 'materialized' is" in log for log in result.refactor_logs)
         assert any("'full-refresh' is not allowed, but 'full_refresh' is" in log for log in result.refactor_logs)
 
     def test_changeset_refactor_yml_with_nested_sources(
-        self, temp_project_dir: Path, schema_yml_with_nested_sources: str
+        self, temp_project_dir: Path, schema_yml_with_nested_sources: str, schema_specs: SchemaSpecs
     ):
         # Create a test YAML file
         yml_file = temp_project_dir / "models" / "sources.yml"
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(schema_yml_with_nested_sources)
 
-        # Get the refactored result
-        yml_str = yml_file.read_text()
-        result = changeset_refactor_yml_str(yml_str)
-
-        # Check that the file was refactored
+        # Test the refactoring
+        result = changeset_refactor_yml_str(schema_yml_with_nested_sources, schema_specs)
         assert result.refactored
         assert isinstance(result, YMLRuleRefactorResult)
 
@@ -604,7 +618,7 @@ class TestYamlOutput:
 class TestDbtProjectYAMLPusPrefix:
     """Tests for YAML output functions"""
 
-    def test_check_project(self, temp_project_dir: Path):
+    def test_check_project(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
         # Test that output_yaml produces valid YAML
 
         test_data = {"models": {"materialized": "table", "not_a_config": {"materialized": "view"}}}
@@ -615,12 +629,12 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.write_text("select 1 as id")
 
         new_yml, refactor_logs = rec_check_yaml_path(
-            test_data, temp_project_dir, dbtproject_specs_per_node_type["models"]
+            test_data, temp_project_dir, schema_specs.dbtproject_specs_per_node_type["models"]
         )
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
-    def test_check_project_existing_config_and_folder(self, temp_project_dir):
+    def test_check_project_existing_config_and_folder(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
         # Test that output_yaml produces valid YAML
 
         test_data = {"models": {"materialized": "table", "grants": {"materialized": "view"}}}
@@ -631,12 +645,12 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.write_text("select 1 as id")
 
         new_yml, refactor_logs = rec_check_yaml_path(
-            test_data, temp_project_dir, dbtproject_specs_per_node_type["models"]
+            test_data, temp_project_dir, schema_specs.dbtproject_specs_per_node_type["models"]
         )
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
-    def test_check_project_existing_config_not_folder(self, temp_project_dir):
+    def test_check_project_existing_config_not_folder(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
         # Test that output_yaml produces valid YAML
 
         test_data = {"models": {"materialized": "table", "grants": {"materialized": "view"}}}
@@ -647,12 +661,12 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.write_text("select 1 as id")
 
         new_yml, refactor_logs = rec_check_yaml_path(
-            test_data, temp_project_dir, dbtproject_specs_per_node_type["models"]
+            test_data, temp_project_dir, schema_specs.dbtproject_specs_per_node_type["models"]
         )
         assert expected_data == new_yml
         assert len(refactor_logs) == 2
 
-    def test_check_project_no_change(self, temp_project_dir):
+    def test_check_project_no_change(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
         # Test that output_yaml produces valid YAML
 
         test_data = {"models": {"+materialized": "table", "folder": {"+materialized": "view"}}}
@@ -663,7 +677,7 @@ class TestDbtProjectYAMLPusPrefix:
         new_file.write_text("select 1 as id")
 
         new_yml, refactor_logs = rec_check_yaml_path(
-            test_data, temp_project_dir, dbtproject_specs_per_node_type["models"]
+            test_data, temp_project_dir, schema_specs.dbtproject_specs_per_node_type["models"]
         )
         assert expected_data == new_yml
         assert len(refactor_logs) == 0
@@ -725,25 +739,26 @@ profile: garage-jaffle
 class TestOwnerPropertiesRefactoring:
     """Tests for owner properties refactoring"""
 
-    def test_owner_properties_refactoring(self, temp_project_dir: Path, schema_yml_with_owner_properties: str):
+    def test_owner_properties_refactoring(
+        self, temp_project_dir: Path, schema_yml_with_owner_properties: str, schema_specs: SchemaSpecs
+    ):
         # Create a test YAML file
         yml_file = temp_project_dir / "models" / "schema.yml"
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(schema_yml_with_owner_properties)
 
-        # Get the refactored result
-        yml_str = yml_file.read_text()
-        result = changeset_owner_properties_yml_str(yml_str)
-
-        # Check that the file was refactored
+        # Test the refactoring
+        result = changeset_owner_properties_yml_str(schema_yml_with_owner_properties, schema_specs)
         assert result.refactored
         assert isinstance(result, YMLRuleRefactorResult)
-
-        # Check the refactored YAML
-        yml_dict = safe_load(result.refactored_yaml)
+        assert len(result.refactor_logs) == 4
+        assert any("team' moved under config.meta" in log for log in result.refactor_logs)
+        assert any("role' moved under config.meta" in log for log in result.refactor_logs)
+        assert any("department' moved under config.meta" in log for log in result.refactor_logs)
+        assert any("level' moved under config.meta" in log for log in result.refactor_logs)
 
         # Check groups
-        group = yml_dict["groups"][0]
+        group = safe_load(result.refactored_yaml)["groups"][0]
         assert "owner" in group
         assert group["owner"] == {"name": "John Doe", "email": "john@example.com"}
         assert "config" in group
@@ -753,7 +768,7 @@ class TestOwnerPropertiesRefactoring:
         assert group["config"]["meta"]["abc"] == 123
 
         # Check exposures
-        exposure = yml_dict["exposures"][0]
+        exposure = safe_load(result.refactored_yaml)["exposures"][0]
         assert "owner" in exposure
         assert exposure["owner"] == {"name": "Jane Doe", "email": "jane@example.com"}
         assert "config" in exposure
@@ -762,7 +777,7 @@ class TestOwnerPropertiesRefactoring:
         assert exposure["config"]["meta"]["level"] == "Senior"
         assert exposure["config"]["meta"]["def"] == 456
 
-    def test_owner_properties_no_changes(self, temp_project_dir: Path):
+    def test_owner_properties_no_changes(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
         # Test with only allowed owner properties
         yml_str = """
 version: 2
@@ -781,10 +796,12 @@ groups:
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(yml_str)
 
-        result = changeset_owner_properties_yml_str(yml_str)
+        # Test the refactoring
+        result = changeset_owner_properties_yml_str(yml_str, schema_specs)
         assert not result.refactored
+        assert len(result.refactor_logs) == 0
 
-    def test_owner_properties_non_dict(self, temp_project_dir: Path):
+    def test_owner_properties_non_dict(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
         # Test with non-dict owner
         yml_str = """
 version: 2
@@ -801,10 +818,12 @@ groups:
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(yml_str)
 
-        result = changeset_owner_properties_yml_str(yml_str)
+        # Test the refactoring
+        result = changeset_owner_properties_yml_str(yml_str, schema_specs)
         assert not result.refactored
+        assert len(result.refactor_logs) == 0
 
-    def test_owner_properties_no_owner(self, temp_project_dir: Path):
+    def test_owner_properties_no_owner(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
         # Test with no owner field
         yml_str = """
 version: 2
@@ -820,10 +839,12 @@ groups:
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(yml_str)
 
-        result = changeset_owner_properties_yml_str(yml_str)
+        # Test the refactoring
+        result = changeset_owner_properties_yml_str(yml_str, schema_specs)
         assert not result.refactored
+        assert len(result.refactor_logs) == 0
 
-    def test_owner_properties_non_owner_node_type(self, temp_project_dir: Path):
+    def test_owner_properties_non_owner_node_type(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
         # Test with a node type that doesn't have owner
         yml_str = """
 version: 2
@@ -843,5 +864,7 @@ models:
         yml_file.parent.mkdir(parents=True, exist_ok=True)
         yml_file.write_text(yml_str)
 
-        result = changeset_owner_properties_yml_str(yml_str)
+        # Test the refactoring
+        result = changeset_owner_properties_yml_str(yml_str, schema_specs)
         assert not result.refactored
+        assert len(result.refactor_logs) == 0
