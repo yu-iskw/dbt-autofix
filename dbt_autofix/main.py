@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich import print
@@ -8,6 +9,7 @@ from typing_extensions import Annotated
 from dbt_autofix.duplicate_keys import find_duplicate_keys, print_duplicate_keys
 from dbt_autofix.fields_properties_configs import print_matrix
 from dbt_autofix.refactor import apply_changesets, changeset_all_sql_yml_files
+from dbt_autofix.retrieve_schemas import SchemaSpecs
 
 console = Console()
 error_console = Console(stderr=True)
@@ -38,8 +40,13 @@ def refactor_yml(
     exclude_dbt_project_keys: Annotated[
         bool, typer.Option("--exclude-dbt-project-keys", "-e", help="Exclude specific dbt project keys", hidden=True)
     ] = False,
+    json_schema_version: Annotated[
+        Optional[str], typer.Option("--json-schema-version", help="Specific version of the JSON schema to use")
+    ] = None,
 ):
-    changesets = changeset_all_sql_yml_files(path, dry_run, exclude_dbt_project_keys)
+    schema_specs = SchemaSpecs(json_schema_version)
+
+    changesets = changeset_all_sql_yml_files(path, schema_specs, dry_run, exclude_dbt_project_keys)
     yaml_results, sql_results = changesets
     if dry_run:
         if not json_output:
@@ -55,8 +62,12 @@ def refactor_yml(
 
 
 @app.command(hidden=True)
-def print_fields_matrix():
-    print_matrix()
+def print_fields_matrix(
+    json_schema_version: Annotated[
+        Optional[str], typer.Option("--json-schema-version", help="Specific version of the JSON schema to use")
+    ] = None,
+):
+    print_matrix(json_schema_version)
 
 
 if __name__ == "__main__":

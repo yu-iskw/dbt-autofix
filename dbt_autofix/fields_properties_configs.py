@@ -263,9 +263,10 @@ fields_per_node_type = {
 }
 
 
-def print_matrix():  # noqa: PLR0912
-    from dbt_autofix.retrieve_schemas import yaml_specs_per_node_type
+def print_matrix(json_schema_version=None):  # noqa: PLR0912
+    from dbt_autofix.retrieve_schemas import SchemaSpecs
 
+    schema_specs = SchemaSpecs(json_schema_version)
     results = dict()
     for node_type, fields_config in fields_per_node_type.items():
         allowed_config_fields = fields_config.allowed_config_fields
@@ -282,7 +283,7 @@ def print_matrix():  # noqa: PLR0912
             else:
                 results[property].update({f"{node_type}-bestguess": "property"})
 
-    for node_type, fields_config in yaml_specs_per_node_type.items():
+    for node_type, fields_config in schema_specs.yaml_specs_per_node_type.items():
         allowed_config_fields = fields_config.allowed_config_fields
         for field in allowed_config_fields:
             if field not in results:
