@@ -35,8 +35,11 @@ def refactor_yml(
     path: Annotated[Path, typer.Option("--path", "-p", help="The path to the dbt project")] = current_dir,
     dry_run: Annotated[bool, typer.Option("--dry-run", "-d", help="In dry run mode, do not apply changes")] = False,
     json_output: Annotated[bool, typer.Option("--json", "-j", help="Output in JSON format")] = False,
+    exclude_dbt_project_keys: Annotated[
+        bool, typer.Option("--exclude-dbt-project-keys", "-e", help="Exclude specific dbt project keys", hidden=True)
+    ] = False,
 ):
-    changesets = changeset_all_sql_yml_files(path, dry_run)
+    changesets = changeset_all_sql_yml_files(path, dry_run, exclude_dbt_project_keys)
     yaml_results, sql_results = changesets
     if dry_run:
         if not json_output:
