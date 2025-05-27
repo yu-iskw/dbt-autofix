@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import dataclass
 
 import httpx
@@ -33,6 +34,7 @@ def get_fusion_latest_version() -> str:
 def get_fusion_yml_schema(version: str) -> dict:
     yml_schema_url = f"https://public.cdn.getdbt.com/fs/schemas/fs-schema-dbt-yaml-files-{version}.json"
 
+    logging.info(f"Getting fusion yml schema for version {version}: {yml_schema_url}")
     response = httpx.get(yml_schema_url)
     response.raise_for_status()
     # print(response.text)
@@ -45,6 +47,7 @@ def get_fusion_yml_schema(version: str) -> dict:
 def get_fusion_dbt_project_schema(version: str) -> dict:
     dbt_project_schema_url = f"https://public.cdn.getdbt.com/fs/schemas/fs-schema-dbt-project-{version}.json"
 
+    logging.info(f"Getting fusion dbt project schema for version {version}: {dbt_project_schema_url}")
     response = httpx.get(dbt_project_schema_url)
     response.raise_for_status()
 
@@ -52,6 +55,8 @@ def get_fusion_dbt_project_schema(version: str) -> dict:
 
 
 def get_specs_from_latest_schema() -> tuple[dict[str, YAMLSpecs], dict[str, DbtProjectSpecs]]:
+    logging.basicConfig(level=logging.INFO)
+
     latest_version = get_fusion_latest_version()
     yml_schema = get_fusion_yml_schema(latest_version)
     dbt_project_schema = get_fusion_dbt_project_schema(latest_version)
@@ -72,6 +77,15 @@ def get_specs_from_latest_schema() -> tuple[dict[str, YAMLSpecs], dict[str, DbtP
         allowed_config_fields=set(yml_schema["definitions"]["SeedsConfig"]["properties"]),
         allowed_properties=set(yml_schema["definitions"]["SeedProperties"]["properties"]),
     )
+    yaml_specs_exposures = YAMLSpecs(
+        allowed_config_fields=set(yml_schema["definitions"]["ExposurePropertiesConfigs"]["properties"]),
+        allowed_properties=set(yml_schema["definitions"]["ExposuresProperties"]["properties"]),
+    )
+    # TODO: Update when JSON schema is correct for tests
+    # yaml_specs_tests = YAMLSpecs(
+    #     allowed_config_fields=set(yml_schema["definitions"]["TestConfigs"]["properties"]),
+    #     allowed_properties=set(yml_schema["definitions"]["TestProperties"]["properties"]),
+    # )
 
     dbtproject_specs_models = DbtProjectSpecs(
         allowed_config_fields_dbt_project_with_plus=set(
@@ -100,7 +114,7 @@ def get_specs_from_latest_schema() -> tuple[dict[str, YAMLSpecs], dict[str, DbtP
     )
     dbtproject_specs_metrics = DbtProjectSpecs(
         allowed_config_fields_dbt_project_with_plus=set(
-            dbt_project_schema["definitions"]["MetricConfigs"]["properties"]
+            dbt_project_schema["definitions"]["ProjectMetricConfigs"]["properties"]
         ),
     )
     dbtproject_specs_saved_queries = DbtProjectSpecs(
@@ -108,6 +122,11 @@ def get_specs_from_latest_schema() -> tuple[dict[str, YAMLSpecs], dict[str, DbtP
             dbt_project_schema["definitions"]["SavedQueriesConfig"]["properties"]
         ),
     )
+    # dbtproject_specs_exposures = DbtProjectSpecs(
+    #     allowed_config_fields_dbt_project_with_plus=set(
+    #         dbt_project_schema["definitions"]["ProjectExposuresConfig"]["properties"]
+    #     ),
+    # )
 
     return (
         {
@@ -115,7 +134,9 @@ def get_specs_from_latest_schema() -> tuple[dict[str, YAMLSpecs], dict[str, DbtP
             "seeds": yaml_specs_seeds,
             "sources": yaml_specs_sources,
             "snapshots": yaml_specs_snapshots,
-            # tests are not modified today as they don't support meta
+            # TODO: update when the test specs are correct
+            # "tests": yaml_specs_tests,
+            "exposures": yaml_specs_exposures,
         },
         {
             "metrics": dbtproject_specs_metrics,
@@ -127,8 +148,12 @@ def get_specs_from_latest_schema() -> tuple[dict[str, YAMLSpecs], dict[str, DbtP
             "sources": dbtproject_specs_sources,
             "tests": dbtproject_specs_tests,
             "data_tests": dbtproject_specs_tests,
+            # "exposures": dbtproject_specs_exposures, -- doesn't exist for exposure right now...
         },
     )
 
 
 yaml_specs_per_node_type, dbtproject_specs_per_node_type = get_specs_from_latest_schema()
+
+owner_properties = ["name", "email"]
+nodes_with_owner = ["groups", "exposures"]

@@ -10,6 +10,7 @@ from dbt_autofix.refactor import (
     YMLRuleRefactorResult,
     changeset_all_sql_yml_files,
     changeset_dbt_project_remove_deprecated_config,
+    changeset_owner_properties_yml_str,
     changeset_refactor_yml_str,
     dict_to_yaml_str,
     rec_check_yaml_path,
@@ -172,6 +173,37 @@ sources:
           event_time: my_other_time_field
         meta:
           abc: 123
+"""
+
+
+@pytest.fixture
+def schema_yml_with_owner_properties():
+    return """
+version: 2
+
+groups:
+  - name: my_first_dbt_group
+    description: "A starter dbt group"
+    owner:
+      name: "John Doe"
+      email: "john@example.com"
+      team: "Data Team"
+      role: "Data Engineer"
+    config:
+      meta:
+        abc: 123
+
+exposures:
+  - name: my_first_dbt_exposure
+    description: "A starter dbt exposure"
+    owner:
+      name: "Jane Doe"
+      email: "jane@example.com"
+      department: "Analytics"
+      level: "Senior"
+    config:
+      meta:
+        def: 456
 """
 
 
@@ -688,3 +720,128 @@ profile: garage-jaffle
 """
         result = changeset_dbt_project_remove_deprecated_config(input_str)
         assert result.refactored_yaml.strip() == expected_str.strip()
+
+
+class TestOwnerPropertiesRefactoring:
+    """Tests for owner properties refactoring"""
+
+    def test_owner_properties_refactoring(self, temp_project_dir: Path, schema_yml_with_owner_properties: str):
+        # Create a test YAML file
+        yml_file = temp_project_dir / "models" / "schema.yml"
+        yml_file.parent.mkdir(parents=True, exist_ok=True)
+        yml_file.write_text(schema_yml_with_owner_properties)
+
+        # Get the refactored result
+        yml_str = yml_file.read_text()
+        result = changeset_owner_properties_yml_str(yml_str)
+
+        # Check that the file was refactored
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check the refactored YAML
+        yml_dict = safe_load(result.refactored_yaml)
+
+        # Check groups
+        group = yml_dict["groups"][0]
+        assert "owner" in group
+        assert group["owner"] == {"name": "John Doe", "email": "john@example.com"}
+        assert "config" in group
+        assert "meta" in group["config"]
+        assert group["config"]["meta"]["team"] == "Data Team"
+        assert group["config"]["meta"]["role"] == "Data Engineer"
+        assert group["config"]["meta"]["abc"] == 123
+
+        # Check exposures
+        exposure = yml_dict["exposures"][0]
+        assert "owner" in exposure
+        assert exposure["owner"] == {"name": "Jane Doe", "email": "jane@example.com"}
+        assert "config" in exposure
+        assert "meta" in exposure["config"]
+        assert exposure["config"]["meta"]["department"] == "Analytics"
+        assert exposure["config"]["meta"]["level"] == "Senior"
+        assert exposure["config"]["meta"]["def"] == 456
+
+    def test_owner_properties_no_changes(self, temp_project_dir: Path):
+        # Test with only allowed owner properties
+        yml_str = """
+version: 2
+
+groups:
+  - name: my_first_dbt_group
+    description: "A starter dbt group"
+    owner:
+      name: "John Doe"
+      email: "john@example.com"
+    config:
+      meta:
+        abc: 123
+"""
+        yml_file = temp_project_dir / "models" / "schema.yml"
+        yml_file.parent.mkdir(parents=True, exist_ok=True)
+        yml_file.write_text(yml_str)
+
+        result = changeset_owner_properties_yml_str(yml_str)
+        assert not result.refactored
+
+    def test_owner_properties_non_dict(self, temp_project_dir: Path):
+        # Test with non-dict owner
+        yml_str = """
+version: 2
+
+groups:
+  - name: my_first_dbt_group
+    description: "A starter dbt group"
+    owner: "John Doe"
+    config:
+      meta:
+        abc: 123
+"""
+        yml_file = temp_project_dir / "models" / "schema.yml"
+        yml_file.parent.mkdir(parents=True, exist_ok=True)
+        yml_file.write_text(yml_str)
+
+        result = changeset_owner_properties_yml_str(yml_str)
+        assert not result.refactored
+
+    def test_owner_properties_no_owner(self, temp_project_dir: Path):
+        # Test with no owner field
+        yml_str = """
+version: 2
+
+groups:
+  - name: my_first_dbt_group
+    description: "A starter dbt group"
+    config:
+      meta:
+        abc: 123
+"""
+        yml_file = temp_project_dir / "models" / "schema.yml"
+        yml_file.parent.mkdir(parents=True, exist_ok=True)
+        yml_file.write_text(yml_str)
+
+        result = changeset_owner_properties_yml_str(yml_str)
+        assert not result.refactored
+
+    def test_owner_properties_non_owner_node_type(self, temp_project_dir: Path):
+        # Test with a node type that doesn't have owner
+        yml_str = """
+version: 2
+
+models:
+  - name: my_first_dbt_model
+    description: "A starter dbt model"
+    owner:
+      name: "John Doe"
+      email: "john@example.com"
+      team: "Data Team"
+    config:
+      meta:
+        abc: 123
+"""
+        yml_file = temp_project_dir / "models" / "schema.yml"
+        yml_file.parent.mkdir(parents=True, exist_ok=True)
+        yml_file.write_text(yml_str)
+
+        result = changeset_owner_properties_yml_str(yml_str)
+        assert not result.refactored

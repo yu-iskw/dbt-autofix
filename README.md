@@ -8,6 +8,7 @@ This tool can help teams clean up their dbt projects so that it conforms with db
 | `CustomKeyInObjectDeprecation` (*) | YAML files        | Move all models configs under `config:` in YAML files                                            |
 | `CustomKeyInObjectDeprecation` (*) | YAML files        | Move all models extra config (not valid or custom) under `meta:` and `meta` under `config:`      |
 | `DuplicateYAMLKeysDeprecation`     | YAML files        | Remove duplicate keys in YAML files, keeping the second one to keep the same behaviour           |
+| -                                  | YAML files        | Only allow email and name as properties for groups and exposures owners                          |
 | `UnexpectedJinjaBlockDeprecation`  | SQL files         | Remove extra `{% endmacro %}` and `{% endif %}` that don't have corresponding opening statements |
 | -                                  | `dbt_project.yml` | Prefix all configs for modeles/tests etc... with a `+`                                           |
 | `ConfigDataPathDeprecation`        | `dbt_project.yml` | Remove deprecated config for data path (now seed)                                                |
