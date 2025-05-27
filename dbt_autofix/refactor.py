@@ -12,7 +12,13 @@ from ruamel.yaml import YAML
 from ruamel.yaml.compat import StringIO
 from yaml import safe_load
 
-from dbt_autofix.retrieve_schemas import DbtProjectSpecs, dbtproject_specs_per_node_type, yaml_specs_per_node_type
+from dbt_autofix.retrieve_schemas import (
+    DbtProjectSpecs,
+    dbtproject_specs_per_node_type,
+    nodes_with_owner,
+    owner_properties,
+    yaml_specs_per_node_type,
+)
 
 console = Console()
 error_console = Console(stderr=True)
@@ -249,6 +255,51 @@ def remove_unmatched_endings(sql_content: str) -> Tuple[str, List[str]]:  # noqa
     return result, logs
 
 
+def restructure_owner_properties(node: Dict[str, Any], node_type: str) -> Tuple[Dict[str, Any], bool, List[str]]:
+    """Restructure owner properties according to dbt conventions.
+
+    Args:
+        node: The node dictionary to process
+        node_type: The type of node to process
+
+    Returns:
+        Tuple containing:
+        - The processed node dictionary
+        - Boolean indicating if changes were made
+        - List of refactor logs
+    """
+    refactored = False
+    refactor_logs: List[str] = []
+    pretty_node_type = node_type[:-1].title()
+
+    if node_type not in nodes_with_owner:
+        return node, refactored, refactor_logs
+
+    if "owner" not in node:
+        return node, refactored, refactor_logs
+
+    owner = node["owner"]
+    if not isinstance(owner, dict):
+        return node, refactored, refactor_logs
+
+    # Create a copy of owner to avoid modifying while iterating
+    owner_copy = owner.copy()
+    for key in owner_copy:
+        if key not in owner_properties:
+            refactored = True
+            # Move the key to config.meta
+            if "config" not in node:
+                node["config"] = {"meta": {}}
+            elif "meta" not in node["config"]:
+                node["config"]["meta"] = {}
+
+            node["config"]["meta"][key] = owner[key]
+            del owner[key]
+            refactor_logs.append(f"{pretty_node_type} '{node['name']}' - Owner field '{key}' moved under config.meta.")
+
+    return node, refactored, refactor_logs
+
+
 def process_yaml_files_except_dbt_project(
     path: Path, model_paths: Iterable[str], dry_run: bool = False
 ) -> List[YMLRefactorResult]:
@@ -287,6 +338,12 @@ def process_yaml_files_except_dbt_project(
             #     yml_refactor_result.refactors.append(changeset_refactor_result)
             #     yml_refactor_result.refactored = True
             #     yml_refactor_result.refactored_yaml = changeset_refactor_result.refactored_yaml
+
+            changeset_owner_properties_result = changeset_owner_properties_yml_str(yml_refactor_result.refactored_yaml)
+            if changeset_owner_properties_result.refactored:
+                yml_refactor_result.refactors.append(changeset_owner_properties_result)
+                yml_refactor_result.refactored = True
+                yml_refactor_result.refactored_yaml = changeset_owner_properties_result.refactored_yaml
 
             yaml_results.append(yml_refactor_result)
 
@@ -457,6 +514,34 @@ def restructure_yaml_keys_for_node(node: Dict[str, Any], node_type: str) -> Tupl
         del node["meta"]
 
     return node, refactored, refactor_logs
+
+
+def changeset_owner_properties_yml_str(yml_str: str) -> YMLRuleRefactorResult:
+    """Generates a refactored YAML string from a single YAML file
+    - moves all the owner fields that are not in owner_properties under config.meta
+    """
+    from dbt_autofix.retrieve_schemas import nodes_with_owner
+
+    refactored = False
+    refactor_logs: List[str] = []
+    yml_dict = DbtYAML().load(yml_str) or {}
+
+    for node_type in nodes_with_owner:
+        if node_type in yml_dict:
+            for i, node in enumerate(yml_dict[node_type]):
+                processed_node, node_refactored, node_refactor_logs = restructure_owner_properties(node, node_type)
+                if node_refactored:
+                    refactored = True
+                    yml_dict[node_type][i] = processed_node
+                    refactor_logs.extend(node_refactor_logs)
+
+    return YMLRuleRefactorResult(
+        rule_name="restructure_owner_properties",
+        refactored=refactored,
+        refactored_yaml=dict_to_yaml_str(yml_dict) if refactored else yml_str,
+        original_yaml=yml_str,
+        refactor_logs=refactor_logs,
+    )
 
 
 def changeset_refactor_yml_str(yml_str: str) -> YMLRuleRefactorResult:
