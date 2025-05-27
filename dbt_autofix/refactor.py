@@ -350,7 +350,9 @@ def process_yaml_files_except_dbt_project(
     return yaml_results
 
 
-def process_dbt_project_yml(path: Path, dry_run: bool = False) -> YMLRefactorResult:
+def process_dbt_project_yml(
+    path: Path, dry_run: bool = False, exclude_dbt_project_keys: bool = False
+) -> YMLRefactorResult:
     """Process dbt_project.yml"""
     yml_str = (path / "dbt_project.yml").read_text()
     yml_refactor_result = YMLRefactorResult(
@@ -371,6 +373,7 @@ def process_dbt_project_yml(path: Path, dry_run: bool = False) -> YMLRefactorRes
 
     changeset_dbt_project_remove_deprecated_config_result = changeset_dbt_project_remove_deprecated_config(
         yml_refactor_result.refactored_yaml,
+        exclude_dbt_project_keys,
     )
     if changeset_dbt_project_remove_deprecated_config_result.refactored:
         yml_refactor_result.refactors.append(changeset_dbt_project_remove_deprecated_config_result)
@@ -615,14 +618,16 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
     )
 
 
-def changeset_dbt_project_remove_deprecated_config(yml_str: str) -> YMLRuleRefactorResult:
+def changeset_dbt_project_remove_deprecated_config(
+    yml_str: str, exclude_dbt_project_keys: bool = False
+) -> YMLRuleRefactorResult:
     """Remove deprecated keys"""
     refactored = False
     refactor_logs: List[str] = []
 
-    set_deprecated_fields = {
-        "log-path",
-        "target-path",
+    dict_deprecated_fields_with_defaults = {
+        "log-path": "logs",
+        "target-path": "target",
     }
 
     dict_renamed_fields = {
@@ -632,11 +637,20 @@ def changeset_dbt_project_remove_deprecated_config(yml_str: str) -> YMLRuleRefac
 
     yml_dict = DbtYAML().load(yml_str) or {}
 
-    for deprecated_field in set_deprecated_fields:
+    for deprecated_field, _ in dict_deprecated_fields_with_defaults.items():
         if deprecated_field in yml_dict:
-            refactored = True
-            refactor_logs.append(f"Removed the deprecated field '{deprecated_field}'")
-            del yml_dict[deprecated_field]
+            if not exclude_dbt_project_keys:
+                # by default we remove it
+                refactored = True
+                refactor_logs.append(f"Removed the deprecated field '{deprecated_field}'")
+                del yml_dict[deprecated_field]
+            # with the special field, we only remove it if it's different from the default
+            elif yml_dict[deprecated_field] != dict_deprecated_fields_with_defaults[deprecated_field]:
+                refactored = True
+                refactor_logs.append(
+                    f"Removed the deprecated field '{deprecated_field}' that wasn't set to the default value"
+                )
+                del yml_dict[deprecated_field]
 
     # TODO: add tests for this
     for deprecated_field, new_field in dict_renamed_fields.items():
@@ -752,6 +766,7 @@ def get_dbt_paths(path: Path) -> Set[str]:
 def changeset_all_sql_yml_files(
     path: Path,
     dry_run: bool = False,
+    exclude_dbt_project_keys: bool = False,
 ) -> Tuple[List[YMLRefactorResult], List[SQLRefactorResult]]:
     """Process all YAML files and SQL files in the project
 
@@ -771,7 +786,7 @@ def changeset_all_sql_yml_files(
     yaml_results = process_yaml_files_except_dbt_project(path, dbt_paths, dry_run)
 
     # Process dbt_project.yml
-    dbt_project_yml_result = process_dbt_project_yml(path, dry_run)
+    dbt_project_yml_result = process_dbt_project_yml(path, dry_run, exclude_dbt_project_keys)
 
     return [*yaml_results, dbt_project_yml_result], sql_results
 
