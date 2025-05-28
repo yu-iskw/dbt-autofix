@@ -61,6 +61,46 @@ class SchemaSpecs:
             allowed_config_fields=set(yml_schema["definitions"]["ExposurePropertiesConfigs"]["properties"]),
             allowed_properties=set(yml_schema["definitions"]["ExposuresProperties"]["properties"]),
         )
+        yaml_specs_tables = YAMLSpecs(
+            allowed_config_fields=set(["enabled", "event_time", "meta", "tags", "freshness"]),
+            allowed_properties=set(
+                [
+                    "name",
+                    "description",
+                    "identifier",
+                    "loaded_at_field",
+                    "tests",
+                    "data_tests",
+                    "quoting",
+                    "external",
+                    "columns",
+                    "config",
+                ]
+            ),
+        )
+
+        columns = YAMLSpecs(
+            allowed_config_fields=set(
+                [
+                    "tags",
+                    "meta",
+                ]
+            ),
+            allowed_properties=set(
+                [
+                    "name",
+                    "description",
+                    "config",
+                    "tests",
+                    "data_tests",
+                    "data_type",
+                    "constraints",
+                    "quote",
+                    "granularity",
+                ]
+            ),
+        )
+
         # TODO: Update when JSON schema is correct for tests
         # yaml_specs_tests = YAMLSpecs(
         #     allowed_config_fields=set(yml_schema["definitions"]["TestConfigs"]["properties"]),
@@ -117,6 +157,8 @@ class SchemaSpecs:
                 # TODO: update when the test specs are correct
                 # "tests": yaml_specs_tests,
                 "exposures": yaml_specs_exposures,
+                "tables": yaml_specs_tables,
+                "columns": columns,
             },
             {
                 "metrics": dbtproject_specs_metrics,

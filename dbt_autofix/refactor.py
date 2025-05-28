@@ -336,11 +336,11 @@ def process_yaml_files_except_dbt_project(
                 yml_refactor_result.refactored = True
                 yml_refactor_result.refactored_yaml = changeset_remove_duplicate_keys_result.refactored_yaml
 
-            # changeset_refactor_result = changeset_refactor_yml_str(yml_refactor_result.refactored_yaml, schema_specs)
-            # if changeset_refactor_result.refactored:
-            #     yml_refactor_result.refactors.append(changeset_refactor_result)
-            #     yml_refactor_result.refactored = True
-            #     yml_refactor_result.refactored_yaml = changeset_refactor_result.refactored_yaml
+            changeset_refactor_result = changeset_refactor_yml_str(yml_refactor_result.refactored_yaml, schema_specs)
+            if changeset_refactor_result.refactored:
+                yml_refactor_result.refactors.append(changeset_refactor_result)
+                yml_refactor_result.refactored = True
+                yml_refactor_result.refactored_yaml = changeset_refactor_result.refactored_yaml
 
             changeset_owner_properties_result = changeset_owner_properties_yml_str(
                 yml_refactor_result.refactored_yaml, schema_specs
@@ -555,7 +555,7 @@ def changeset_owner_properties_yml_str(yml_str: str, schema_specs: SchemaSpecs) 
     )
 
 
-def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:
+def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:  # noqa: PLR0912
     """Generates a refactored YAML string from a single YAML file
     - moves all the config fields under config
     - moves all the meta fields under config.meta and merges with existing config.meta
@@ -577,18 +577,38 @@ def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRu
                     yml_dict[node_type][i] = processed_node
                     refactor_logs.extend(node_refactor_logs)
 
-    # for sources, the config can be set at the table level as well
+                if "columns" in processed_node:
+                    for column_i, column in enumerate(node["columns"]):
+                        processed_column, column_refactored, column_refactor_logs = restructure_yaml_keys_for_node(
+                            column, "columns", schema_specs
+                        )
+                        if column_refactored:
+                            refactored = True
+                            yml_dict[node_type][i]["columns"][column_i] = processed_column
+                            refactor_logs.extend(column_refactor_logs)
+
+    # for sources, the config can be set at the table level as well, which is one level lower
     if "sources" in yml_dict:
         for i, source in enumerate(yml_dict["sources"]):
             if "tables" in source:
                 for j, table in enumerate(source["tables"]):
                     processed_source_table, source_table_refactored, source_table_refactor_logs = (
-                        restructure_yaml_keys_for_node(table, "sources", schema_specs)
+                        restructure_yaml_keys_for_node(table, "tables", schema_specs)
                     )
                     if source_table_refactored:
                         refactored = True
                         yml_dict["sources"][i]["tables"][j] = processed_source_table
                         refactor_logs.extend(source_table_refactor_logs)
+
+                    if "columns" in processed_source_table:
+                        for table_column_i, table_column in enumerate(table["columns"]):
+                            processed_table_column, table_column_refactored, table_column_refactor_logs = (
+                                restructure_yaml_keys_for_node(table_column, "columns", schema_specs)
+                            )
+                            if table_column_refactored:
+                                refactored = True
+                                yml_dict["sources"][i]["tables"][j]["columns"][table_column_i] = processed_table_column
+                                refactor_logs.extend(table_column_refactor_logs)
 
     return YMLRuleRefactorResult(
         rule_name="restructure_yaml_keys",

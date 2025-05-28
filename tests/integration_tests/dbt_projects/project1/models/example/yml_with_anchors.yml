@@ -2,10 +2,14 @@
 
 models:
   - name: my_first_dbt_model
+    my_config: mine
     description: &description "A starter dbt model"
     columns:
       - &copy_me
         name: id
+        meta: 
+          my_meta: minemine
+        my_config: mine
         description: The ID.
         data_tests:
           - not_null

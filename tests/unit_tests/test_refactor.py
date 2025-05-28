@@ -159,6 +159,8 @@ version: 2
 sources:
   - name: my_first_dbt_source
     description: "A starter dbt source"
+    database: my_db
+    schema: my_schema
     meta:
       abc: 456
     config:
@@ -173,8 +175,6 @@ sources:
           abc: 123
       - name: my_second_dbt_table
         description: "A starter dbt table"
-        database: my_db
-        schema: my_schema
         config:
           event_time: my_other_time_field
         meta:
@@ -465,7 +465,6 @@ class TestYamlRefactoring:
         # Check that meta was merged correctly
         assert model["config"]["meta"]["abc"] == 123
 
-    @pytest.mark.xfail(reason="waiting for JSON schema")
     def test_changeset_all_yml_files(
         self, temp_project_dir: Path, schema_yml_with_config_fields: str, schema_specs: SchemaSpecs
     ):
@@ -587,8 +586,6 @@ class TestYamlRefactoring:
         assert source["tables"][0]["config"]["meta"]["abc"] == 123
         assert source["tables"][0]["config"]["enabled"] == True  # noqa: E712
 
-        assert source["tables"][1]["database"] == "my_db"
-        assert source["tables"][1]["schema"] == "my_schema"
         assert source["tables"][1]["config"]["event_time"] == "my_other_time_field"
         assert source["tables"][1]["config"]["meta"]["abc"] == 123
 
