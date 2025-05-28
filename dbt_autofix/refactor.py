@@ -320,6 +320,14 @@ def process_yaml_files_except_dbt_project(
                 refactors=[],
             )
 
+            changeset_standardize_version_format_result = changeset_remove_indentation_version(
+                yml_refactor_result.refactored_yaml
+            )
+            if changeset_standardize_version_format_result.refactored:
+                yml_refactor_result.refactors.append(changeset_standardize_version_format_result)
+                yml_refactor_result.refactored = True
+                yml_refactor_result.refactored_yaml = changeset_standardize_version_format_result.refactored_yaml
+
             changeset_remove_duplicate_keys_result = changeset_remove_duplicate_keys(
                 yml_refactor_result.refactored_yaml
             )
@@ -613,6 +621,45 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
 
     return YMLRuleRefactorResult(
         rule_name="remove_duplicate_keys",
+        refactored=refactored,
+        refactored_yaml=refactored_yaml,
+        original_yaml=yml_str,
+        refactor_logs=refactor_logs,
+    )
+
+
+def changeset_remove_indentation_version(yml_str: str) -> YMLRuleRefactorResult:
+    """Standardizes the format of 'version: 2' in YAML files.
+
+    This function looks for any variations of whitespace around 'version: 2' and
+    standardizes them to the format 'version: 2'.
+
+    Args:
+        yml_str: The YAML string to process
+
+    Returns:
+        YMLRuleRefactorResult containing the refactored YAML and any changes made
+    """
+    refactored = False
+    refactor_logs: List[str] = []
+
+    # Pattern to match any whitespace around 'version: 2'
+    pattern = r"^\s*version\s*:\s*2"
+    replacement = "version: 2"
+
+    # Process each line
+    lines = yml_str.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(pattern, line):
+            if line != replacement:
+                refactored = True
+                lines[i] = replacement
+                refactor_logs.append(f"Removed the extra indentation around 'version: 2' on line {i + 1}")
+
+    refactored_yaml = "\n".join(lines) if refactored else yml_str
+
+    return YMLRuleRefactorResult(
+        rule_name="removed_extra_indentation",
         refactored=refactored,
         refactored_yaml=refactored_yaml,
         original_yaml=yml_str,

@@ -1,3 +1,4 @@
+import difflib
 import filecmp
 import os
 import shutil
@@ -34,7 +35,20 @@ def compare_dirs(dir1, dir2):
 
     # Check for files that differ
     if comparison.diff_files:
-        pytest.fail(f"Content differs in files: {comparison.diff_files}")
+        diff_message = "Content differs in files:\n"
+        for file in comparison.diff_files:
+            file1 = os.path.join(dir1, file)
+            file2 = os.path.join(dir2, file)
+            with open(file1) as f1, open(file2) as f2:
+                actual = f1.readlines()
+                expected = f2.readlines()
+                diff_message += f"\n{file}:\n"
+                diff_message += "".join(
+                    difflib.unified_diff(
+                        actual, expected, fromfile=f"actual/{file}", tofile=f"expected/{file}", lineterm=""
+                    )
+                )
+        pytest.fail(diff_message)
 
     # Recursively check subdirectories
     for subdir in comparison.common_dirs:

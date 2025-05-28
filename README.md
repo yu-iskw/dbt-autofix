@@ -22,15 +22,18 @@ This tool can help teams clean up their dbt projects so that it conforms with db
 
 ### From PyPi
 
-- with uv/uvx (uv needs to be installed before): 
-  - to run the latest version of the tool `uvx dbt-autofix`
-  - to run a specific version of the tool `uvx dbt-autofix@0.1.2`
-  - to install the tool as a dedicated CLI; `uv tool install dbt-autofix`
-- with pip: In a venv, `pip install dbt-autofix` and then `dbt-autofix ...` 
+We recommend using `uv`/`uvx` to run the package.
+If you don't have `uv` installed, you can install `uv` and `uvx`, [following the instructions on the offical website](https://docs.astral.sh/uv/getting-started/installation/).
+
+- to run the latest version of the tool: `uvx dbt-autofix`
+- to run a specific version of the tool: `uvx dbt-autofix@0.1.2`
+- to install the tool as a dedicated CLI: `uv tool install dbt-autofix`
+
+You can also use `pip` if you prefer, but we then recommend installing the tool in its own Python virtual environment. Once in a venv, install the tool with `pip install dbt-autofix` and then run `dbt-autofix ...` 
 
 ### From the source repo
 
-To run it from the git repo directly, install `uv` and then
+To run it from the git repo directly, install `uv` [following those instructions](https://docs.astral.sh/uv/getting-started/installation/) and then:
 
 run the tool directly
 ```sh

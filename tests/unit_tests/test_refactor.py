@@ -12,6 +12,7 @@ from dbt_autofix.refactor import (
     changeset_dbt_project_remove_deprecated_config,
     changeset_owner_properties_yml_str,
     changeset_refactor_yml_str,
+    changeset_remove_indentation_version,
     dict_to_yaml_str,
     rec_check_yaml_path,
     remove_unmatched_endings,
@@ -591,6 +592,123 @@ class TestYamlRefactoring:
         assert source["tables"][1]["config"]["event_time"] == "my_other_time_field"
         assert source["tables"][1]["config"]["meta"]["abc"] == 123
 
+    def test_changeset_remove_indentation_version(self):
+        # Test cases with different indentation patterns
+        test_cases = [
+            (
+                """
+version: 2
+models:
+  - name: test_model
+""",
+                """
+version: 2
+models:
+  - name: test_model
+""",
+                False,
+            ),
+            (
+                """
+  version: 2
+models:
+  - name: test_model
+""",
+                """
+version: 2
+models:
+  - name: test_model
+""",
+                True,
+            ),
+            (
+                """
+\tversion: 2
+models:
+  - name: test_model
+""",
+                """
+version: 2
+models:
+  - name: test_model
+""",
+                True,
+            ),
+            (
+                """
+  version: 2  
+models:
+  - name: test_model
+""",
+                """
+version: 2
+models:
+  - name: test_model
+""",
+                True,
+            ),
+            (
+                """
+version:2
+models:
+  - name: test_model
+""",
+                """
+version: 2
+models:
+  - name: test_model
+""",
+                True,
+            ),
+            (
+                """
+version : 2
+models:
+  - name: test_model
+""",
+                """
+version: 2
+models:
+  - name: test_model
+""",
+                True,
+            ),
+        ]
+
+        for input_yaml, expected_yaml, should_refactor in test_cases:
+            result = changeset_remove_indentation_version(input_yaml)
+            assert result.refactored == should_refactor
+            if should_refactor:
+                assert len(result.refactor_logs) == 1
+                assert "Removed the extra indentation around 'version: 2'" in result.refactor_logs[0]
+            assert result.refactored_yaml.strip() == expected_yaml.strip()
+
+    def test_changeset_remove_indentation_version_no_version(self):
+        input_yaml = """
+models:
+  - name: test_model
+    description: "A test model"
+"""
+        result = changeset_remove_indentation_version(input_yaml)
+        assert not result.refactored
+        assert len(result.refactor_logs) == 0
+        assert result.refactored_yaml == input_yaml
+
+    def test_changeset_remove_indentation_version_comments(self):
+        input_yaml = """
+# This is a comment
+  version: 2  # This is an inline comment
+models:
+  - name: test_model
+"""
+        result = changeset_remove_indentation_version(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "Removed the extra indentation around 'version: 2'" in result.refactor_logs[0]
+        assert "# This is a comment" in result.refactored_yaml
+        assert "version: 2" in result.refactored_yaml  # The inline comment should be removed
+        assert "# This is an inline comment" not in result.refactored_yaml  # The inline comment should be removed
+
 
 class TestYamlOutput:
     """Tests for YAML output functions"""
@@ -852,10 +970,6 @@ version: 2
 models:
   - name: my_first_dbt_model
     description: "A starter dbt model"
-    owner:
-      name: "John Doe"
-      email: "john@example.com"
-      team: "Data Team"
     config:
       meta:
         abc: 123
