@@ -1,4 +1,5 @@
 import difflib
+import io
 import json
 import re
 from dataclasses import dataclass
@@ -46,6 +47,14 @@ class DbtYAML(YAML):
         super().dump(data, stream, **kw)
         if inefficient:
             return stream.getvalue()
+
+    def dump_to_string(self, data: Any, add_final_eol: bool = False) -> str:
+        buf = io.BytesIO()
+        self.dump(data, buf)
+        if add_final_eol:
+            return buf.getvalue().decode("utf-8")
+        else:
+            return buf.getvalue()[:-1].decode("utf-8")
 
 
 def read_file(path: Path) -> Dict:
@@ -615,6 +624,7 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
         import yaml
 
         # we use dump from ruamel to keep indentation style but this loses quite a bit of formatting though
+        # breakpoint()
         refactored_yaml = DbtYAML().dump_to_string(yaml.safe_load(yml_str))  # type: ignore
     else:
         refactored_yaml = yml_str
