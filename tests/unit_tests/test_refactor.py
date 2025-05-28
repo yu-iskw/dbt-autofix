@@ -706,6 +706,120 @@ models:
         assert "version: 2" in result.refactored_yaml  # The inline comment should be removed
         assert "# This is an inline comment" not in result.refactored_yaml  # The inline comment should be removed
 
+    def test_changeset_refactor_yml_with_source_columns(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        input_yaml = """
+version: 2
+
+sources:
+  - name: my_source
+    description: "A test source"
+    tables:
+      - name: my_table
+        description: "A test table"
+        columns:
+          - name: id
+            description: "Primary key"
+            tags: 
+              - my-tag
+            data_type: integer
+            tests:
+              - unique
+              - not_null
+          - name: created_at
+            description: "Creation timestamp"
+            data_type: timestamp  # This should stay here
+            tests:
+              - not_null
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the source structure is preserved
+        source = safe_load(result.refactored_yaml)["sources"][0]
+        table = source["tables"][0]
+
+        # Check that columns were processed correctly
+        assert len(table["columns"]) == 2
+
+        # Check first column
+        id_column = table["columns"][0]
+        assert id_column["name"] == "id"
+        assert id_column["description"] == "Primary key"
+        assert "config" in id_column
+        assert "tags" in id_column["config"]
+        assert "meta" not in id_column["config"]
+        assert id_column["data_type"] == "integer"
+        assert id_column["tests"] == ["unique", "not_null"]
+
+        # Check second column
+        created_at_column = table["columns"][1]
+        assert created_at_column["name"] == "created_at"
+        assert created_at_column["description"] == "Creation timestamp"
+        assert "config" not in created_at_column
+        assert created_at_column["data_type"] == "timestamp"
+        assert created_at_column["tests"] == ["not_null"]
+
+    def test_changeset_refactor_yml_with_nested_source_columns(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        input_yaml = """
+version: 2
+
+sources:
+  - name: my_source
+    description: "A test source"
+    tables:
+      - name: my_table
+        description: "A test table"
+        columns:
+          - name: id
+            description: "Primary key"
+            data_type: integer
+            tests:
+              - unique
+              - not_null
+            meta:
+              is_primary: true  # This should be merged with config.meta
+          - name: created_at
+            description: "Creation timestamp"
+            data_type: timestamp
+            tests:
+              - not_null
+            config:
+              meta:
+                is_timestamp: true  # This should be preserved in config.meta
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the source structure is preserved
+        source = safe_load(result.refactored_yaml)["sources"][0]
+        table = source["tables"][0]
+
+        # Check that columns were processed correctly
+        assert len(table["columns"]) == 2
+
+        # Check first column with meta field
+        id_column = table["columns"][0]
+        assert id_column["name"] == "id"
+        assert id_column["description"] == "Primary key"
+        assert "meta" not in id_column  # Should be merged with config.meta
+        assert "config" in id_column
+        assert "meta" in id_column["config"]
+        assert id_column["data_type"] == "integer"
+        assert id_column["config"]["meta"]["is_primary"] is True
+        assert id_column["tests"] == ["unique", "not_null"]
+
+        # Check second column with existing config.meta
+        created_at_column = table["columns"][1]
+        assert created_at_column["name"] == "created_at"
+        assert created_at_column["description"] == "Creation timestamp"
+        assert "config" in created_at_column
+        assert "meta" in created_at_column["config"]
+        assert created_at_column["data_type"] == "timestamp"
+        assert created_at_column["config"]["meta"]["is_timestamp"] is True
+        assert created_at_column["tests"] == ["not_null"]
+
 
 class TestYamlOutput:
     """Tests for YAML output functions"""
