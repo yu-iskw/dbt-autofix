@@ -62,43 +62,12 @@ class SchemaSpecs:
             allowed_properties=set(yml_schema["definitions"]["ExposuresProperties"]["properties"]),
         )
         yaml_specs_tables = YAMLSpecs(
-            allowed_config_fields=set(["enabled", "event_time", "meta", "tags", "freshness"]),
-            allowed_properties=set(
-                [
-                    "name",
-                    "description",
-                    "identifier",
-                    "loaded_at_field",
-                    "tests",
-                    "data_tests",
-                    "quoting",
-                    "external",
-                    "columns",
-                    "config",
-                ]
-            ),
+            allowed_config_fields=set(yml_schema["definitions"]["TablesConfig"]["properties"]),
+            allowed_properties=set(yml_schema["definitions"]["Tables"]["properties"]),
         )
-
         columns = YAMLSpecs(
-            allowed_config_fields=set(
-                [
-                    "tags",
-                    "meta",
-                ]
-            ),
-            allowed_properties=set(
-                [
-                    "name",
-                    "description",
-                    "config",
-                    "tests",
-                    "data_tests",
-                    "data_type",
-                    "constraints",
-                    "quote",
-                    "granularity",
-                ]
-            ),
+            allowed_config_fields=set(yml_schema["definitions"]["ColumnConfig"]["properties"]),
+            allowed_properties=set(yml_schema["definitions"]["ColumnProperties"]["properties"]),
         )
 
         # TODO: Update when JSON schema is correct for tests
