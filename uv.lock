@@ -174,7 +174,6 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
     { name = "ruamel-yaml" },
-    { name = "ruamel-yaml-string" },
     { name = "typer" },
     { name = "yamllint" },
 ]
@@ -198,7 +197,6 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rich", specifier = ">=13.7.0" },
     { name = "ruamel-yaml", specifier = ">=0.18.10" },
-    { name = "ruamel-yaml-string", specifier = ">=0.1.1" },
     { name = "typer", specifier = ">=0.15.2" },
     { name = "yamllint", specifier = ">=1.37.0" },
 ]
@@ -577,18 +575,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/52/b3/fe4d84446f7e4887e3bea7ceff0a7df23790b5ed625f830e79ace88ebefb/ruamel.yaml.clib-0.2.12-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:2c59aa6170b990d8d2719323e628aaf36f3bfbc1c26279c0eeeb24d05d2d11c7", size = 666365, upload-time = "2024-12-11T19:58:20.444Z" },
     { url = "https://files.pythonhosted.org/packages/6e/b3/7feb99a00bfaa5c6868617bb7651308afde85e5a0b23cd187fe5de65feeb/ruamel.yaml.clib-0.2.12-cp39-cp39-win32.whl", hash = "sha256:beffaed67936fbbeffd10966a4eb53c402fafd3d6833770516bf7314bc6ffa12", size = 100863, upload-time = "2024-10-20T10:13:17.244Z" },
     { url = "https://files.pythonhosted.org/packages/93/07/de635108684b7a5bb06e432b0930c5a04b6c59efe73bd966d8db3cc208f2/ruamel.yaml.clib-0.2.12-cp39-cp39-win_amd64.whl", hash = "sha256:040ae85536960525ea62868b642bdb0c2cc6021c9f9d507810c0c604e66f5a7b", size = 118653, upload-time = "2024-10-20T10:13:18.289Z" },
-]
-
-[[package]]
-name = "ruamel-yaml-string"
-version = "0.1.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "ruamel-yaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/11/47/fa7c06b8f9946fc9192cb4d944367f31197715915f5e71363909e8c35eb7/ruamel.yaml.string-0.1.1.tar.gz", hash = "sha256:7a7aedcc055d45c004d38b756f58474ebefb106851f4ce56ce58415709784350", size = 12678, upload-time = "2023-05-02T05:37:18.085Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/2a/b508237a7fcceab8a8724405480eb55d527523419c9dbcde369f954656ad/ruamel.yaml.string-0.1.1-py3-none-any.whl", hash = "sha256:eb146bcb42b116216638034a434e9cf3ae2a5d3933aa37183a9854b5f3ff42de", size = 4118, upload-time = "2023-05-02T05:37:20.332Z" },
 ]
 
 [[package]]
