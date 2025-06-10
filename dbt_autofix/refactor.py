@@ -302,7 +302,11 @@ def restructure_owner_properties(
 
 
 def process_yaml_files_except_dbt_project(
-    path: Path, model_paths: Iterable[str], schema_specs: SchemaSpecs, dry_run: bool = False
+    path: Path,
+    model_paths: Iterable[str],
+    schema_specs: SchemaSpecs,
+    dry_run: bool = False,
+    select: Optional[List[str]] = None,
 ) -> List[YMLRefactorResult]:
     """Process all YAML files in the project
 
@@ -319,6 +323,9 @@ def process_yaml_files_except_dbt_project(
             set((path / Path(model_path)).resolve().glob("**/*.yaml"))
         )
         for yml_file in yaml_files:
+            if skip_file(yml_file, select):
+                continue
+
             yml_str = yml_file.read_text()
             yml_refactor_result = YMLRefactorResult(
                 dry_run=dry_run,
@@ -368,6 +375,17 @@ def process_dbt_project_yml(
     path: Path, schema_specs: SchemaSpecs, dry_run: bool = False, exclude_dbt_project_keys: bool = False
 ) -> YMLRefactorResult:
     """Process dbt_project.yml"""
+    if not (path / "dbt_project.yml").exists():
+        error_console.print(f"Error: dbt_project.yml not found in {path}", style="red")
+        return YMLRefactorResult(
+            dry_run=dry_run,
+            file_path=path / "dbt_project.yml",
+            refactored=False,
+            refactored_yaml="",
+            original_yaml="",
+            refactors=[],
+        )
+
     yml_str = (path / "dbt_project.yml").read_text()
     yml_refactor_result = YMLRefactorResult(
         dry_run=dry_run,
@@ -405,7 +423,19 @@ def process_dbt_project_yml(
     return yml_refactor_result
 
 
-def process_sql_files(path: Path, sql_paths: Iterable[str], dry_run: bool = False) -> List[SQLRefactorResult]:
+def skip_file(file_path: Path, select: Optional[List[str]] = None) -> bool:
+    """Skip a file if a select list is provided and the file is not in the select list"""
+    if select:
+        return not any(
+            [Path(select_path).resolve().as_posix() in file_path.resolve().as_posix() for select_path in select]
+        )
+    else:
+        return False
+
+
+def process_sql_files(
+    path: Path, sql_paths: Iterable[str], dry_run: bool = False, select: Optional[List[str]] = None
+) -> List[SQLRefactorResult]:
     """Process all SQL files in the given paths for unmatched endings.
 
     Args:
@@ -425,6 +455,9 @@ def process_sql_files(path: Path, sql_paths: Iterable[str], dry_run: bool = Fals
 
         sql_files = full_path.glob("**/*.sql")
         for sql_file in sql_files:
+            if skip_file(full_path, select):
+                continue
+
             try:
                 content = sql_file.read_text()
                 new_content, logs = remove_unmatched_endings(content)
@@ -833,6 +866,10 @@ def get_dbt_paths(path: Path) -> Set[str]:
         A list of paths to the models, macros, tests, analyses, and snapshots
     """
 
+    if not (path / "dbt_project.yml").exists():
+        error_console.print(f"Error: dbt_project.yml not found in {path}", style="red")
+        return set()
+
     with open(path / "dbt_project.yml", "r") as f:
         project_config = safe_load(f)
     model_paths = project_config.get("model-paths", ["models"])
@@ -849,6 +886,7 @@ def changeset_all_sql_yml_files(
     schema_specs: SchemaSpecs,
     dry_run: bool = False,
     exclude_dbt_project_keys: bool = False,
+    select: Optional[List[str]] = None,
 ) -> Tuple[List[YMLRefactorResult], List[SQLRefactorResult]]:
     """Process all YAML files and SQL files in the project
 
@@ -865,10 +903,10 @@ def changeset_all_sql_yml_files(
     """
     dbt_paths = get_dbt_paths(path)
 
-    sql_results = process_sql_files(path, dbt_paths, dry_run)
+    sql_results = process_sql_files(path, dbt_paths, dry_run, select)
 
     # Process YAML files
-    yaml_results = process_yaml_files_except_dbt_project(path, dbt_paths, schema_specs, dry_run)
+    yaml_results = process_yaml_files_except_dbt_project(path, dbt_paths, schema_specs, dry_run, select)
 
     # Process dbt_project.yml
     dbt_project_yml_result = process_dbt_project_yml(path, schema_specs, dry_run, exclude_dbt_project_keys)

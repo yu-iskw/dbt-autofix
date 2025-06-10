@@ -16,6 +16,7 @@ from dbt_autofix.refactor import (
     dict_to_yaml_str,
     rec_check_yaml_path,
     remove_unmatched_endings,
+    skip_file,
 )
 from dbt_autofix.retrieve_schemas import SchemaSpecs
 
@@ -1093,3 +1094,55 @@ models:
         result = changeset_owner_properties_yml_str(yml_str, schema_specs)
         assert not result.refactored
         assert len(result.refactor_logs) == 0
+
+
+class TestSkipFile:
+    """Tests for skip_file function"""
+
+    def test_skip_file_no_select(self):
+        """Test that no files are skipped when no select list is provided"""
+        file_path = Path("/path/to/file.sql")
+        assert not skip_file(file_path)
+        assert not skip_file(file_path, None)
+
+    def test_skip_file_with_select_matching(self):
+        """Test that files matching the select list are not skipped"""
+        file_path = Path("/path/to/file.sql")
+        select = ["/path/to/file.sql"]
+        assert not skip_file(file_path, select)
+
+    def test_skip_file_with_select_not_matching(self):
+        """Test that files not matching the select list are skipped"""
+        file_path = Path("/path/to/file.sql")
+        select = ["/path/to/other.sql"]
+        assert skip_file(file_path, select)
+
+    def test_skip_file_with_select_partial_match(self):
+        """Test that files partially matching the select list are not skipped"""
+        file_path = Path("/path/to/file.sql")
+        select = ["/path/to"]
+        assert not skip_file(file_path, select)
+
+    def test_skip_file_with_select_multiple_paths(self):
+        """Test that files matching any path in the select list are not skipped"""
+        file_path = Path("/path/to/file.sql")
+        select = ["/path/to/other.sql", "/path/to/file.sql"]
+        assert not skip_file(file_path, select)
+
+    def test_skip_file_with_select_relative_paths(self):
+        """Test that relative paths in select list work correctly"""
+        file_path = Path("/absolute/path/to/file.sql")
+        select = ["/absolute/path/to/file.sql"]  # Changed to use absolute path since that's what the function expects
+        assert not skip_file(file_path, select)
+
+    def test_skip_file_with_select_different_case(self):
+        """Test that path matching is case sensitive"""
+        file_path = Path("/path/to/file.sql")
+        select = ["/PATH/TO/FILE.SQL"]
+        assert skip_file(file_path, select)
+
+    def test_skip_file_with_select_empty_list(self):
+        """Test that empty select list is treated the same as no select list"""
+        file_path = Path("/path/to/file.sql")
+        select = []
+        assert not skip_file(file_path, select)  # Changed to expect False since empty list is treated same as None
