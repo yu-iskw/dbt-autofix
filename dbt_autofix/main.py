@@ -1,11 +1,12 @@
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import typer
 from rich import print
 from rich.console import Console
 from typing_extensions import Annotated
 
+from dbt_autofix.dbt_api import update_jobs
 from dbt_autofix.duplicate_keys import find_duplicate_keys, print_duplicate_keys
 from dbt_autofix.fields_properties_configs import print_matrix
 from dbt_autofix.refactor import apply_changesets, changeset_all_sql_yml_files
@@ -59,6 +60,34 @@ def refactor_yml(
                 changeset.print_to_console(json_output)
     else:
         apply_changesets(yaml_results, sql_results, json_output)
+
+
+@app.command(name="jobs")
+def jobs(  # noqa: PLR0913
+    account_id: Annotated[
+        int, typer.Option("--account-id", "-a", help="The account ID to use", envvar="DBT_ACCOUNT_ID")
+    ],
+    api_key: Annotated[
+        str, typer.Option("--api-key", "-k", help="The user token or service token to use", envvar="DBT_API_KEY")
+    ],
+    base_url: Annotated[
+        str, typer.Option("--base-url", "-b", help="The base URL to use", envvar="DBT_BASE_URL")
+    ] = "https://cloud.getdbt.com",
+    disable_ssl_verification: Annotated[
+        bool, typer.Option("--disable-ssl-verification", "-s", help="Disable SSL verification", hidden=True)
+    ] = False,
+    project_ids: Annotated[
+        Optional[List[int]], typer.Option("--project-ids", "-p", help="The project IDs to use")
+    ] = None,
+    environment_ids: Annotated[
+        Optional[List[int]], typer.Option("--environment-ids", "-e", help="The environment IDs to use")
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-d", help="In dry run mode, do not apply changes")] = False,
+    json_output: Annotated[bool, typer.Option("--json", "-j", help="Output in JSON format")] = False,
+):
+    update_jobs(
+        account_id, api_key, base_url, disable_ssl_verification, project_ids, environment_ids, dry_run, json_output
+    )
 
 
 @app.command(hidden=True)
