@@ -2,7 +2,14 @@
 
 sources:
   - name: my-source
-    description: my-source-description
+    description: |-
+      This is a model about something
+      
+      This model contains:
+        * This
+        * That
+        * The other thing
+        
     database: my-db
     schema: my-schema
     loader: my-loader

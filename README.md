@@ -45,6 +45,8 @@ uv tool install --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-autof
 
 ## Usage
 
+### `deprecations` - the main one
+
 - `dbt-autofix deprecations`: refactor YAML and SQL files to fix some deprecations
   - add `--path <mypath>` to configure the path of the dbt project (defaults to `.`)
   - add `--dry-run` for running in dry run mode
@@ -60,3 +62,14 @@ Each JSON object will have the following keys:
 Calling `deprecations` without `--dry-run` should be safe if your dbt code is part of a git repo. 
 
 Please review the suggested changes to your dbt project before merging to `main` and make those changes go through your typical CI/CD process.
+
+
+### `jobs`
+
+`dbt-autofix jobs`: update dbt platform jobs steps to use `-s`/`--select` selectors instead of `-m`/`--models`/`--model` which are deprecated in the Fusion engine
+
+Run `dbt-autofix jobs --help` to see the required parameters and supported arguments.
+
+This tool requires connecting to the dbt Admin API to retrieve and update jobs which means that the user token or service token used need to have Read and Write access to jobs
+
+Running with `--dry-run`/`d` will output what changes would have been triggered without triggering them
