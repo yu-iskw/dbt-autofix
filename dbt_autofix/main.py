@@ -34,7 +34,7 @@ def identify_duplicate_keys(
 
 
 @app.command(name="deprecations")
-def refactor_yml(
+def refactor_yml(  # noqa: PLR0913
     path: Annotated[Path, typer.Option("--path", "-p", help="The path to the dbt project")] = current_dir,
     dry_run: Annotated[bool, typer.Option("--dry-run", "-d", help="In dry run mode, do not apply changes")] = False,
     json_output: Annotated[bool, typer.Option("--json", "-j", help="Output in JSON format")] = False,
@@ -44,10 +44,13 @@ def refactor_yml(
     json_schema_version: Annotated[
         Optional[str], typer.Option("--json-schema-version", help="Specific version of the JSON schema to use")
     ] = None,
+    select: Annotated[
+        Optional[List[str]], typer.Option("--select", "-s", help="Select specific paths to refactor")
+    ] = None,
 ):
     schema_specs = SchemaSpecs(json_schema_version)
 
-    changesets = changeset_all_sql_yml_files(path, schema_specs, dry_run, exclude_dbt_project_keys)
+    changesets = changeset_all_sql_yml_files(path, schema_specs, dry_run, exclude_dbt_project_keys, select)
     yaml_results, sql_results = changesets
     if dry_run:
         if not json_output:
