@@ -301,6 +301,40 @@ def restructure_owner_properties(
     return node, refactored, refactor_logs
 
 
+def changeset_remove_tab_only_lines(yml_str: str) -> YMLRuleRefactorResult:
+    """Remove lines that contain only tabs from YAML files.
+
+    Args:
+        yml_str: The YAML string to process
+
+    Returns:
+        YMLRuleRefactorResult containing the refactored YAML and any changes made
+    """
+    refactored = False
+    refactor_logs: List[str] = []
+
+    # Process each line
+    lines = yml_str.splitlines()
+    new_lines = []
+    for i, line in enumerate(lines):
+        if "\t" in line and line.strip() == "":
+            refactored = True
+            refactor_logs.append(f"Removed line containing only tabs on line {i + 1}")
+            new_lines.append("")
+        else:
+            new_lines.append(line)
+
+    refactored_yaml = "\n".join(new_lines) if refactored else yml_str
+
+    return YMLRuleRefactorResult(
+        rule_name="remove_tab_only_lines",
+        refactored=refactored,
+        refactored_yaml=refactored_yaml,
+        original_yaml=yml_str,
+        refactor_logs=refactor_logs,
+    )
+
+
 def process_yaml_files_except_dbt_project(
     path: Path,
     model_paths: Iterable[str],
@@ -315,6 +349,7 @@ def process_yaml_files_except_dbt_project(
         model_paths: Paths to process
         schema_specs: The schema specifications to use
         dry_run: Whether to perform a dry run
+        select: Optional list of paths to select
     """
     yaml_results: List[YMLRefactorResult] = []
 
@@ -336,35 +371,26 @@ def process_yaml_files_except_dbt_project(
                 refactors=[],
             )
 
-            changeset_standardize_version_format_result = changeset_remove_indentation_version(
-                yml_refactor_result.refactored_yaml
-            )
-            if changeset_standardize_version_format_result.refactored:
-                yml_refactor_result.refactors.append(changeset_standardize_version_format_result)
-                yml_refactor_result.refactored = True
-                yml_refactor_result.refactored_yaml = changeset_standardize_version_format_result.refactored_yaml
+            # Define the changesets to apply in order
+            changesets = [
+                (changeset_remove_tab_only_lines, None),
+                (changeset_remove_indentation_version, None),
+                (changeset_remove_duplicate_keys, None),
+                (changeset_refactor_yml_str, schema_specs),
+                (changeset_owner_properties_yml_str, schema_specs),
+            ]
 
-            changeset_remove_duplicate_keys_result = changeset_remove_duplicate_keys(
-                yml_refactor_result.refactored_yaml
-            )
-            if changeset_remove_duplicate_keys_result.refactored:
-                yml_refactor_result.refactors.append(changeset_remove_duplicate_keys_result)
-                yml_refactor_result.refactored = True
-                yml_refactor_result.refactored_yaml = changeset_remove_duplicate_keys_result.refactored_yaml
+            # Apply each changeset in sequence
+            for changeset_func, changeset_args in changesets:
+                if changeset_args is None:
+                    changeset_result = changeset_func(yml_refactor_result.refactored_yaml)
+                else:
+                    changeset_result = changeset_func(yml_refactor_result.refactored_yaml, changeset_args)
 
-            changeset_refactor_result = changeset_refactor_yml_str(yml_refactor_result.refactored_yaml, schema_specs)
-            if changeset_refactor_result.refactored:
-                yml_refactor_result.refactors.append(changeset_refactor_result)
-                yml_refactor_result.refactored = True
-                yml_refactor_result.refactored_yaml = changeset_refactor_result.refactored_yaml
-
-            changeset_owner_properties_result = changeset_owner_properties_yml_str(
-                yml_refactor_result.refactored_yaml, schema_specs
-            )
-            if changeset_owner_properties_result.refactored:
-                yml_refactor_result.refactors.append(changeset_owner_properties_result)
-                yml_refactor_result.refactored = True
-                yml_refactor_result.refactored_yaml = changeset_owner_properties_result.refactored_yaml
+                if changeset_result.refactored:
+                    yml_refactor_result.refactors.append(changeset_result)
+                    yml_refactor_result.refactored = True
+                    yml_refactor_result.refactored_yaml = changeset_result.refactored_yaml
 
             yaml_results.append(yml_refactor_result)
 
@@ -396,29 +422,24 @@ def process_dbt_project_yml(
         refactors=[],
     )
 
-    # TODO: refactor to be more DRY
-    changeset_remove_duplicate_keys_result = changeset_remove_duplicate_keys(yml_refactor_result.refactored_yaml)
-    if changeset_remove_duplicate_keys_result.refactored:
-        yml_refactor_result.refactors.append(changeset_remove_duplicate_keys_result)
-        yml_refactor_result.refactored = True
-        yml_refactor_result.refactored_yaml = changeset_remove_duplicate_keys_result.refactored_yaml
+    changesets = [
+        (changeset_remove_duplicate_keys, None),
+        (changeset_dbt_project_remove_deprecated_config, exclude_dbt_project_keys),
+        (changeset_dbt_project_prefix_plus_for_config, path, schema_specs),
+    ]
 
-    changeset_dbt_project_remove_deprecated_config_result = changeset_dbt_project_remove_deprecated_config(
-        yml_refactor_result.refactored_yaml,
-        exclude_dbt_project_keys,
-    )
-    if changeset_dbt_project_remove_deprecated_config_result.refactored:
-        yml_refactor_result.refactors.append(changeset_dbt_project_remove_deprecated_config_result)
-        yml_refactor_result.refactored = True
-        yml_refactor_result.refactored_yaml = changeset_dbt_project_remove_deprecated_config_result.refactored_yaml
+    for changeset_func, *changeset_args in changesets:
+        if changeset_args[0] is None:
+            changeset_result = changeset_func(yml_refactor_result.refactored_yaml)
+        elif len(changeset_args) == 1:
+            changeset_result = changeset_func(yml_refactor_result.refactored_yaml, changeset_args[0])
+        else:
+            changeset_result = changeset_func(yml_refactor_result.refactored_yaml, *changeset_args)
 
-    changeset_dbt_project_prefix_plus_for_config_result = changeset_dbt_project_prefix_plus_for_config(
-        yml_refactor_result.refactored_yaml, path, schema_specs
-    )
-    if changeset_dbt_project_prefix_plus_for_config_result.refactored:
-        yml_refactor_result.refactors.append(changeset_dbt_project_prefix_plus_for_config_result)
-        yml_refactor_result.refactored = True
-        yml_refactor_result.refactored_yaml = changeset_dbt_project_prefix_plus_for_config_result.refactored_yaml
+        if changeset_result.refactored:
+            yml_refactor_result.refactors.append(changeset_result)
+            yml_refactor_result.refactored = True
+            yml_refactor_result.refactored_yaml = changeset_result.refactored_yaml
 
     return yml_refactor_result
 
@@ -426,9 +447,7 @@ def process_dbt_project_yml(
 def skip_file(file_path: Path, select: Optional[List[str]] = None) -> bool:
     """Skip a file if a select list is provided and the file is not in the select list"""
     if select:
-        return not any(
-            [Path(select_path).resolve().as_posix() in file_path.resolve().as_posix() for select_path in select]
-        )
+        return not any([Path(select_path).resolve().as_posix() in file_path.as_posix() for select_path in select])
     else:
         return False
 
@@ -441,6 +460,8 @@ def process_sql_files(
     Args:
         path: Base project path
         sql_paths: Set of paths relative to project root where SQL files are located
+        dry_run: Whether to perform a dry run
+        select: Optional list of paths to select
 
     Returns:
         List of SQLRefactorResult for each processed file
