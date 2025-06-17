@@ -19,6 +19,7 @@ app = typer.Typer(
     help="A tool to help clean up dbt projects",
     no_args_is_help=True,
     add_completion=False,
+    pretty_exceptions_enable=False,
 )
 
 current_dir = Path.cwd()
@@ -104,3 +105,13 @@ def print_fields_matrix(
 
 if __name__ == "__main__":
     app()
+
+
+@app.callback()
+def main(
+    debug: bool = typer.Option(
+        False, "--debug", help="Enable debug mode with pretty exceptions", envvar="DBT_AUTOFIX_DEBUG"
+    ),
+):
+    if debug:
+        app.pretty_exceptions_enable = True
