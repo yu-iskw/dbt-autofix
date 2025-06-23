@@ -42,24 +42,24 @@ class SchemaSpecs:
         dbt_project_schema = get_fusion_dbt_project_schema(version)
 
         yaml_specs_models = YAMLSpecs(
-            allowed_config_fields=set(yml_schema["definitions"]["ModelPropertiesConfigs"]["properties"]),
+            allowed_config_fields=set(yml_schema["definitions"]["ModelConfig"]["properties"]),
             allowed_properties=set(yml_schema["definitions"]["ModelProperties"]["properties"]),
         )
         yaml_specs_sources = YAMLSpecs(
-            allowed_config_fields=set(yml_schema["definitions"]["SourcePropertiesConfig"]["properties"]),
+            allowed_config_fields=set(yml_schema["definitions"]["SourceConfig"]["properties"]),
             allowed_properties=set(yml_schema["definitions"]["SourceProperties"]["properties"]),
         )
         yaml_specs_snapshots = YAMLSpecs(
-            allowed_config_fields=set(yml_schema["definitions"]["SnapshotsConfig"]["properties"]),
+            allowed_config_fields=set(yml_schema["definitions"]["SnapshotConfig"]["properties"]),
             allowed_properties=set(yml_schema["definitions"]["SnapshotProperties"]["properties"]),
         )
         yaml_specs_seeds = YAMLSpecs(
-            allowed_config_fields=set(yml_schema["definitions"]["SeedsConfig"]["properties"]),
+            allowed_config_fields=set(yml_schema["definitions"]["SeedConfig"]["properties"]),
             allowed_properties=set(yml_schema["definitions"]["SeedProperties"]["properties"]),
         )
         yaml_specs_exposures = YAMLSpecs(
-            allowed_config_fields=set(yml_schema["definitions"]["ExposurePropertiesConfigs"]["properties"]),
-            allowed_properties=set(yml_schema["definitions"]["ExposuresProperties"]["properties"]),
+            allowed_config_fields=set(yml_schema["definitions"]["ExposureConfig"]["properties"]),
+            allowed_properties=set(yml_schema["definitions"]["ExposureProperties"]["properties"]),
         )
         yaml_specs_tables = YAMLSpecs(
             allowed_config_fields=set(yml_schema["definitions"]["TablesConfig"]["properties"]),
@@ -108,7 +108,7 @@ class SchemaSpecs:
         )
         dbtproject_specs_saved_queries = DbtProjectSpecs(
             allowed_config_fields_dbt_project_with_plus=set(
-                dbt_project_schema["definitions"]["SavedQueriesConfig"]["properties"]
+                dbt_project_schema["definitions"]["ProjectSavedQueriesConfig"]["properties"]
             ),
         )
         # dbtproject_specs_exposures = DbtProjectSpecs(
