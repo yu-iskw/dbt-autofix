@@ -80,13 +80,11 @@ class SchemaSpecs:
             allowed_config_fields=set(yml_schema["definitions"][column_config_field_name]["properties"]),
             allowed_properties=set(yml_schema["definitions"][column_property_field_name]["properties"]),
         )
-
-        # TODO: Update when JSON schema is correct for tests
-        # yaml_specs_tests = YAMLSpecs(
-        #     allowed_config_fields=set(yml_schema["definitions"]["TestConfigs"]["properties"]),
-        #     allowed_properties=set(yml_schema["definitions"]["TestProperties"]["properties"]),
-        # )
-
+        test_property_field_name, test_config_field_name = self._get_yml_schema_fields(yml_schema, "tests")
+        yaml_specs_tests = YAMLSpecs(
+            allowed_config_fields=set(yml_schema["definitions"][test_config_field_name]["properties"]),
+            allowed_properties=set(yml_schema["definitions"][test_property_field_name]["properties"]),
+        )
         model_property_field_name_dbt_project = self._get_dbt_project_schema_fields(dbt_project_schema, "models")
         dbtproject_specs_models = DbtProjectSpecs(
             allowed_config_fields_dbt_project_with_plus=set(
@@ -143,11 +141,11 @@ class SchemaSpecs:
                 "seeds": yaml_specs_seeds,
                 "sources": yaml_specs_sources,
                 "snapshots": yaml_specs_snapshots,
-                # TODO: update when the test specs are correct
-                # "tests": yaml_specs_tests,
+                "tests": yaml_specs_tests,  # tests can be at the top level, or nested under nodes or nested under nodes columns
+                "data_tests": yaml_specs_tests,  # data_tests can be at the top level, or nested under nodes or nested under nodes columns
                 "exposures": yaml_specs_exposures,
-                "tables": yaml_specs_tables,
-                "columns": columns,
+                "tables": yaml_specs_tables,  # tables is nested under sources
+                "columns": columns,  # columns is nested under models
             },
             {
                 "metrics": dbtproject_specs_metrics,

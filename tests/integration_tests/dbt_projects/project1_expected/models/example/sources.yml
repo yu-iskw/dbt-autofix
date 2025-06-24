@@ -54,7 +54,9 @@ sources:
             description: col1-description
 
             tests:
-              - unique
+              - unique:
+                  config:
+                    where: 1=1
               - not_null
             config:
               meta:

@@ -547,13 +547,15 @@ def restructure_yaml_keys_for_node(
             # if the field is not under config, move it under config
             if field not in node_config:
                 node_config.update({field: node[field]})
-                refactor_logs.append(f"{pretty_node_type} '{node['name']}' - Field '{field}' moved under config.")
+                refactor_logs.append(
+                    f"{pretty_node_type} '{node.get('name', '')}' - Field '{field}' moved under config."
+                )
                 node["config"] = node_config
 
             # if the field is already under config, it will take precedence there, so we remove it from the top level
             else:
                 refactor_logs.append(
-                    f"{pretty_node_type} '{node['name']}' - Field '{field}' is already under config, it has been removed from the top level."
+                    f"{pretty_node_type} '{node.get('name', '')}' - Field '{field}' is already under config, it has been removed from the top level."
                 )
             del node[field]
 
@@ -568,11 +570,11 @@ def restructure_yaml_keys_for_node(
             )
             if closest_match:
                 refactor_logs.append(
-                    f"{pretty_node_type} '{node['name']}' - Field '{field}' is not allowed, but '{closest_match[0]}' is. Moved as-is under config.meta but you might want to rename it and move it under config."
+                    f"{pretty_node_type} '{node.get('name', '')}' - Field '{field}' is not allowed, but '{closest_match[0]}' is. Moved as-is under config.meta but you might want to rename it and move it under config."
                 )
             else:
                 refactor_logs.append(
-                    f"{pretty_node_type} '{node['name']}' - Field '{field}' is not an allowed config - Moved under config.meta."
+                    f"{pretty_node_type} '{node.get('name', '')}' - Field '{field}' is not an allowed config - Moved under config.meta."
                 )
             node_meta = node.get("config", {}).get("meta", {})
             node_meta.update({field: node[field]})
@@ -582,7 +584,7 @@ def restructure_yaml_keys_for_node(
     if existing_meta:
         refactored = True
         refactor_logs.append(
-            f"{pretty_node_type} '{node['name']}' - Moved all the meta fields under config.meta and merged with existing config.meta."
+            f"{pretty_node_type} '{node.get('name', '')}' - Moved all the meta fields under config.meta and merged with existing config.meta."
         )
         if "config" not in node:
             node["config"] = {"meta": {}}
@@ -593,6 +595,59 @@ def restructure_yaml_keys_for_node(
         del node["meta"]
 
     return node, refactored, refactor_logs
+
+
+def restructure_yaml_keys_for_test(
+    test: Dict[str, Any], schema_specs: SchemaSpecs
+) -> Tuple[Dict[str, Any], bool, List[str]]:
+    """Restructure YAML keys for tests according to dbt conventions.
+    Tests are separated from other nodes because
+    - they don't support meta
+    - they can be either a string or a dict
+    - when they are a dict, the top level ist just the test name
+
+    Args:
+        test: The test dictionary to process
+        schema_specs: The schema specifications to use
+
+    Returns:
+        Tuple containing:
+        - The processed test dictionary
+        - Boolean indicating if changes were made
+        - List of refactor logs
+    """
+    refactored = False
+    refactor_logs: List[str] = []
+    pretty_node_type = "Test"
+
+    # if the test is a string, we leave it as is
+    if isinstance(test, str):
+        return test, False, []
+
+    test_name = next(iter(test.keys()))
+    copy_test = test.copy()
+
+    for field in copy_test[test_name]:
+        if field in schema_specs.yaml_specs_per_node_type["tests"].allowed_config_fields_without_meta:
+            refactored = True
+            node_config = test[test_name].get("config", {})
+
+            # if the field is not under config, move it under config
+            if field not in node_config:
+                node_config.update({field: test[test_name][field]})
+                refactor_logs.append(f"{pretty_node_type} '{test_name}' - Field '{field}' moved under config.")
+                test[test_name]["config"] = node_config
+
+            # if the field is already under config, overwrite it and remove from top level
+            else:
+                node_config[field] = test[test_name][field]
+                refactor_logs.append(
+                    f"{pretty_node_type} '{test_name}' - Field '{field}' is already under config, it has been overwritten and removed from the top level."
+                )
+                test[test_name]["config"] = node_config
+            del test[test_name][field]
+
+    return test, refactored, refactor_logs
 
 
 def changeset_owner_properties_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:
@@ -623,7 +678,7 @@ def changeset_owner_properties_yml_str(yml_str: str, schema_specs: SchemaSpecs) 
     )
 
 
-def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:  # noqa: PLR0912
+def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:  # noqa: PLR0912,PLR0915
     """Generates a refactored YAML string from a single YAML file
     - moves all the config fields under config
     - moves all the meta fields under config.meta and merges with existing config.meta
@@ -655,6 +710,32 @@ def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRu
                             yml_dict[node_type][i]["columns"][column_i] = processed_column
                             refactor_logs.extend(column_refactor_logs)
 
+                        # there might be some tests, but they can be called tests or data_tests
+                        some_tests = {"tests", "data_tests"} & set(processed_column)
+                        if some_tests:
+                            test_key = next(iter(some_tests))
+                            for test_i, test in enumerate(node["columns"][column_i][test_key]):
+                                processed_test, test_refactored, test_refactor_logs = restructure_yaml_keys_for_test(
+                                    test, schema_specs
+                                )
+                                if test_refactored:
+                                    refactored = True
+                                    yml_dict[node_type][i]["columns"][column_i][test_key][test_i] = processed_test
+                                    refactor_logs.extend(test_refactor_logs)
+
+                # if there are tests, we need to restructure them
+                some_tests = {"tests", "data_tests"} & set(processed_node)
+                if some_tests:
+                    test_key = next(iter(some_tests))
+                    for test_i, test in enumerate(node[test_key]):
+                        processed_test, test_refactored, test_refactor_logs = restructure_yaml_keys_for_test(
+                            test, schema_specs
+                        )
+                        if test_refactored:
+                            refactored = True
+                            yml_dict[node_type][i][test_key][test_i] = processed_test
+                            refactor_logs.extend(test_refactor_logs)
+
     # for sources, the config can be set at the table level as well, which is one level lower
     if "sources" in yml_dict:
         for i, source in enumerate(yml_dict["sources"]):
@@ -668,6 +749,18 @@ def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRu
                         yml_dict["sources"][i]["tables"][j] = processed_source_table
                         refactor_logs.extend(source_table_refactor_logs)
 
+                    some_tests = {"tests", "data_tests"} & set(processed_source_table)
+                    if some_tests:
+                        test_key = next(iter(some_tests))
+                        for test_i, test in enumerate(source["tables"][j][test_key]):
+                            processed_test, test_refactored, test_refactor_logs = restructure_yaml_keys_for_test(
+                                test, schema_specs
+                            )
+                            if test_refactored:
+                                refactored = True
+                                yml_dict["sources"][i]["tables"][j][test_key][test_i] = processed_test
+                                refactor_logs.extend(test_refactor_logs)
+
                     if "columns" in processed_source_table:
                         for table_column_i, table_column in enumerate(table["columns"]):
                             processed_table_column, table_column_refactored, table_column_refactor_logs = (
@@ -677,6 +770,20 @@ def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRu
                                 refactored = True
                                 yml_dict["sources"][i]["tables"][j]["columns"][table_column_i] = processed_table_column
                                 refactor_logs.extend(table_column_refactor_logs)
+
+                            some_tests = {"tests", "data_tests"} & set(processed_table_column)
+                            if some_tests:
+                                test_key = next(iter(some_tests))
+                                for test_i, test in enumerate(table_column[test_key]):
+                                    processed_test, test_refactored, test_refactor_logs = (
+                                        restructure_yaml_keys_for_test(test, schema_specs)
+                                    )
+                                    if test_refactored:
+                                        refactored = True
+                                        yml_dict["sources"][i]["tables"][j]["columns"][table_column_i][test_key][
+                                            test_i
+                                        ] = processed_test
+                                        refactor_logs.extend(test_refactor_logs)
 
     return YMLRuleRefactorResult(
         rule_name="restructure_yaml_keys",
