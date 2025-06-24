@@ -1458,7 +1458,7 @@ sources:
         assert any("Field 'where' moved under config" in log for log in result.refactor_logs)
 
     def test_test_config_existing_config_field(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
-        """Test that tests with existing config fields are handled correctly"""
+        """Test that test configuration fields are handled correctly when config already exists"""
         input_yaml = """
 version: 2
 
@@ -1467,10 +1467,10 @@ models:
     columns:
       - name: id
         tests:
-          - unique:
+          - not_null:
               config:
-                where: "existing_condition"
-              where: "new_condition"  # This should be moved under config
+                severity: warn
+              where: "id is not null"
 """
         result = changeset_refactor_yml_str(input_yaml, schema_specs)
         assert result.refactored
@@ -1484,14 +1484,50 @@ models:
         assert len(column["tests"]) == 1
 
         # Check the test
-        unique_test = column["tests"][0]
-        assert "unique" in unique_test
-        assert "config" in unique_test["unique"]
-        # The existing config should be preserved, and the new where should be added
-        assert unique_test["unique"]["config"]["where"] == "new_condition"
+        not_null_test = column["tests"][0]
+        assert "not_null" in not_null_test
+        assert "config" in not_null_test["not_null"]
+        assert not_null_test["not_null"]["config"]["where"] == "id is not null"
+        assert not_null_test["not_null"]["config"]["severity"] == "warn"
 
         # Check that appropriate logs were generated
-        assert any(
-            "Field 'where' is already under config, it has been overwritten and removed from the top level" in log
-            for log in result.refactor_logs
-        )
+        assert any("Field 'where' moved under config" in log for log in result.refactor_logs)
+
+    def test_ordereddict_mutation_bug(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        """Test that reproduces the OrderedDict mutated during iteration bug"""
+        input_yaml = """
+version: 2
+
+models:
+  - name: my_model
+    columns:
+      - name: id
+        tests:
+          - not_null:
+              severity: error
+              where: "id is not null"
+              config:
+                severity: warn
+"""
+        # This should not raise "OrderedDict mutated during iteration" error
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the model structure is preserved
+        model = safe_load(result.refactored_yaml)["models"][0]
+        column = model["columns"][0]
+
+        # Check that tests were processed correctly
+        assert len(column["tests"]) == 1
+
+        # Check the test - the top-level severity should be moved to config and overwrite the existing one
+        not_null_test = column["tests"][0]
+        assert "not_null" in not_null_test
+        assert "config" in not_null_test["not_null"]
+        assert not_null_test["not_null"]["config"]["where"] == "id is not null"
+        assert not_null_test["not_null"]["config"]["severity"] == "error"  # Should be overwritten
+
+        # Check that appropriate logs were generated
+        assert any("Field 'severity' is already under config" in log for log in result.refactor_logs)
+        assert any("Field 'where' moved under config" in log for log in result.refactor_logs)

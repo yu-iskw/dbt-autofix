@@ -2,6 +2,7 @@ import difflib
 import io
 import json
 import re
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -625,7 +626,7 @@ def restructure_yaml_keys_for_test(
         return test, False, []
 
     test_name = next(iter(test.keys()))
-    copy_test = test.copy()
+    copy_test = deepcopy(test)
 
     for field in copy_test[test_name]:
         if field in schema_specs.yaml_specs_per_node_type["tests"].allowed_config_fields_without_meta:
