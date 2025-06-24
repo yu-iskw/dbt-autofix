@@ -1146,3 +1146,352 @@ class TestSkipFile:
         file_path = Path("/path/to/file.sql")
         select = []
         assert not skip_file(file_path, select)  # Changed to expect False since empty list is treated same as None
+
+
+class TestTestConfigurationRefactoring:
+    """Tests for test configuration refactoring"""
+
+    def test_test_config_model_column_level(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        """Test that test configuration fields at column level are moved under config"""
+        input_yaml = """
+version: 2
+
+models:
+  - name: my_model
+    columns:
+      - name: id
+        tests:
+          - unique:
+              where: "date_column > __3_days_ago__"  # placeholder string for static config
+          - accepted_values:
+              values: ['placed', 'shipped', 'completed', 'returned']
+              where: "date_column > __3_days_ago__"  # placeholder string for static config
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the model structure is preserved
+        model = safe_load(result.refactored_yaml)["models"][0]
+        column = model["columns"][0]
+
+        # Check that tests were processed correctly
+        assert len(column["tests"]) == 2
+
+        # Check first test (unique)
+        unique_test = column["tests"][0]
+        assert "unique" in unique_test
+        assert "config" in unique_test["unique"]
+        assert unique_test["unique"]["config"]["where"] == "date_column > __3_days_ago__"
+
+        # Check second test (accepted_values)
+        accepted_values_test = column["tests"][1]
+        assert "accepted_values" in accepted_values_test
+        assert "config" in accepted_values_test["accepted_values"]
+        assert accepted_values_test["accepted_values"]["config"]["where"] == "date_column > __3_days_ago__"
+        assert accepted_values_test["accepted_values"]["values"] == ["placed", "shipped", "completed", "returned"]
+
+        # Check that appropriate logs were generated
+        assert any("Field 'where' moved under config" in log for log in result.refactor_logs)
+
+    def test_test_config_model_top_level(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        """Test that test configuration fields at model level are moved under config"""
+        input_yaml = """
+version: 2
+
+models:
+  - name: my_model
+    tests:
+      - dbt_expectations.expect_table_aggregation_to_equal_other_table:
+          expression: sum(col_numeric_a)
+          compare_model: ref("other_model")
+          group_by: [idx]
+          where: 1=1
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the model structure is preserved
+        model = safe_load(result.refactored_yaml)["models"][0]
+
+        # Check that tests were processed correctly
+        assert len(model["tests"]) == 1
+
+        # Check the test
+        test = model["tests"][0]
+        test_name = "dbt_expectations.expect_table_aggregation_to_equal_other_table"
+        assert test_name in test
+        assert "config" in test[test_name]
+        assert test[test_name]["config"]["where"] == "1=1"
+        assert test[test_name]["expression"] == "sum(col_numeric_a)"
+        assert test[test_name]["compare_model"] == 'ref("other_model")'
+        assert test[test_name]["group_by"] == ["idx"]
+
+        # Check that appropriate logs were generated
+        assert any("Field 'where' moved under config" in log for log in result.refactor_logs)
+
+    def test_test_config_source_top_level(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        """Test that test configuration fields at source table level are moved under config"""
+        input_yaml = """
+version: 2
+
+sources:
+  - name: jaffle_shop
+    description: This is a replica of the Postgres database used by our app
+    tables:
+      - name: orders
+        database: raw
+        description: >
+          One record per order. Includes cancelled and deleted orders.
+        columns:
+          - name: id
+            description: Primary key of the orders table
+            tests:
+              - unique
+              - not_null:
+                  where: 1=1
+          - name: status
+            description: Note that the status can change over time
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the source structure is preserved
+        source = safe_load(result.refactored_yaml)["sources"][0]
+        table = source["tables"][0]
+
+        # Check that columns were processed correctly
+        assert len(table["columns"]) == 2
+
+        # Check first column with tests
+        id_column = table["columns"][0]
+        assert id_column["name"] == "id"
+        assert len(id_column["tests"]) == 2
+
+        # Check the not_null test
+        not_null_test = id_column["tests"][1]
+        assert "not_null" in not_null_test
+        assert "config" in not_null_test["not_null"]
+        assert not_null_test["not_null"]["config"]["where"] == "1=1"
+
+        # Check second column (no tests)
+        status_column = table["columns"][1]
+        assert status_column["name"] == "status"
+        assert "tests" not in status_column
+
+        # Check that appropriate logs were generated
+        assert any("Field 'where' moved under config" in log for log in result.refactor_logs)
+
+    def test_test_config_string_tests(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        """Test that string tests are left unchanged"""
+        input_yaml = """
+version: 2
+
+models:
+  - name: my_model
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        # Should not be refactored since string tests don't need config
+        assert not result.refactored
+        assert len(result.refactor_logs) == 0
+
+    def test_test_config_mixed_string_and_dict_tests(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        """Test that mixed string and dict tests are handled correctly"""
+        input_yaml = """
+version: 2
+
+models:
+  - name: my_model
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null:
+              where: "id is not null"
+          - accepted_values:
+              values: ['active', 'inactive']
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the model structure is preserved
+        model = safe_load(result.refactored_yaml)["models"][0]
+        column = model["columns"][0]
+
+        # Check that tests were processed correctly
+        assert len(column["tests"]) == 3
+
+        # Check first test (string - should be unchanged)
+        assert column["tests"][0] == "unique"
+
+        # Check second test (dict with config)
+        not_null_test = column["tests"][1]
+        assert "not_null" in not_null_test
+        assert "config" in not_null_test["not_null"]
+        assert not_null_test["not_null"]["config"]["where"] == "id is not null"
+
+        # Check third test (dict without config)
+        accepted_values_test = column["tests"][2]
+        assert "accepted_values" in accepted_values_test
+        assert accepted_values_test["accepted_values"]["values"] == ["active", "inactive"]
+        assert "config" not in accepted_values_test["accepted_values"]
+
+        # Check that appropriate logs were generated
+        assert any("Field 'where' moved under config" in log for log in result.refactor_logs)
+
+    def test_test_config_data_tests_key(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        """Test that tests work with both 'tests' and 'data_tests' keys"""
+        input_yaml = """
+version: 2
+
+models:
+  - name: my_model
+    columns:
+      - name: id
+        data_tests:
+          - unique:
+              where: "date_column > '2023-01-01'"
+          - not_null:
+              where: "id is not null"
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the model structure is preserved
+        model = safe_load(result.refactored_yaml)["models"][0]
+        column = model["columns"][0]
+
+        # Check that tests were processed correctly
+        assert len(column["data_tests"]) == 2
+
+        # Check first test
+        unique_test = column["data_tests"][0]
+        assert "unique" in unique_test
+        assert "config" in unique_test["unique"]
+        assert unique_test["unique"]["config"]["where"] == "date_column > '2023-01-01'"
+
+        # Check second test
+        not_null_test = column["data_tests"][1]
+        assert "not_null" in not_null_test
+        assert "config" in not_null_test["not_null"]
+        assert not_null_test["not_null"]["config"]["where"] == "id is not null"
+
+        # Check that appropriate logs were generated
+        assert any("Field 'where' moved under config" in log for log in result.refactor_logs)
+
+    def test_test_config_source_column_level(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        """Test that test configuration fields at source column level are moved under config"""
+        input_yaml = """
+version: 2
+
+sources:
+  - name: my_source
+    description: A test source
+    tables:
+      - name: my_table
+        description: A test table
+        columns:
+          - name: id
+            description: Primary key
+            tests:
+              - unique:
+                  where: "deleted_at is null"
+              - not_null:
+                  where: "id > 0"
+          - name: status
+            description: Status field
+            tests:
+              - accepted_values:
+                  values: ['pending', 'active', 'completed']
+                  where: "status is not null"
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the source structure is preserved
+        source = safe_load(result.refactored_yaml)["sources"][0]
+        table = source["tables"][0]
+
+        # Check that columns were processed correctly
+        assert len(table["columns"]) == 2
+
+        # Check first column
+        id_column = table["columns"][0]
+        assert id_column["name"] == "id"
+        assert len(id_column["tests"]) == 2
+
+        # Check unique test
+        unique_test = id_column["tests"][0]
+        assert "unique" in unique_test
+        assert "config" in unique_test["unique"]
+        assert unique_test["unique"]["config"]["where"] == "deleted_at is null"
+
+        # Check not_null test
+        not_null_test = id_column["tests"][1]
+        assert "not_null" in not_null_test
+        assert "config" in not_null_test["not_null"]
+        assert not_null_test["not_null"]["config"]["where"] == "id > 0"
+
+        # Check second column
+        status_column = table["columns"][1]
+        assert status_column["name"] == "status"
+        assert len(status_column["tests"]) == 1
+
+        # Check accepted_values test
+        accepted_values_test = status_column["tests"][0]
+        assert "accepted_values" in accepted_values_test
+        assert "config" in accepted_values_test["accepted_values"]
+        assert accepted_values_test["accepted_values"]["config"]["where"] == "status is not null"
+        assert accepted_values_test["accepted_values"]["values"] == ["pending", "active", "completed"]
+
+        # Check that appropriate logs were generated
+        assert any("Field 'where' moved under config" in log for log in result.refactor_logs)
+
+    def test_test_config_existing_config_field(self, temp_project_dir: Path, schema_specs: SchemaSpecs):
+        """Test that tests with existing config fields are handled correctly"""
+        input_yaml = """
+version: 2
+
+models:
+  - name: my_model
+    columns:
+      - name: id
+        tests:
+          - unique:
+              config:
+                where: "existing_condition"
+              where: "new_condition"  # This should be moved under config
+"""
+        result = changeset_refactor_yml_str(input_yaml, schema_specs)
+        assert result.refactored
+        assert isinstance(result, YMLRuleRefactorResult)
+
+        # Check that the model structure is preserved
+        model = safe_load(result.refactored_yaml)["models"][0]
+        column = model["columns"][0]
+
+        # Check that tests were processed correctly
+        assert len(column["tests"]) == 1
+
+        # Check the test
+        unique_test = column["tests"][0]
+        assert "unique" in unique_test
+        assert "config" in unique_test["unique"]
+        # The existing config should be preserved, and the new where should be added
+        assert unique_test["unique"]["config"]["where"] == "new_condition"
+
+        # Check that appropriate logs were generated
+        assert any(
+            "Field 'where' is already under config, it has been overwritten and removed from the top level" in log
+            for log in result.refactor_logs
+        )

@@ -23,3 +23,5 @@ models:
       - <<: *copy_me
         data_tests:
           - unique
+          - not_null:
+              where: 1=1
