@@ -5,7 +5,7 @@ dbt-autofix automatically scans your dbt project for deprecated configurations a
 
 | Deprecation Code in dbt Core      | Files             | Description                                                                                      |
 | --------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------ |
-| `CustomKeyInObjectDeprecation`    | YAML files        | Move all models configs under `config:` in YAML files                                            |
+| `CustomKeyInObjectDeprecation` / `PropertyMovedToConfigDeprecation`    | YAML files        | Move all models configs under `config:` in YAML files                                            |
 | `CustomKeyInObjectDeprecation`    | YAML files        | Move all models extra config (not valid or custom) under `meta:` and `meta` under `config:`      |
 | `DuplicateYAMLKeysDeprecation`    | YAML files        | Remove duplicate keys in YAML files, keeping the second one to keep the same behaviour           |
 | -                                 | YAML files        | Only allow email and name as properties for groups and exposures owners                          |
