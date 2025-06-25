@@ -19,6 +19,8 @@ from dbt_autofix.retrieve_schemas import (
     SchemaSpecs,
 )
 
+NUM_SPACES_TO_REPLACE_TAB = 2
+
 console = Console()
 error_console = Console(stderr=True)
 
@@ -376,6 +378,7 @@ def process_yaml_files_except_dbt_project(
             changesets = [
                 (changeset_remove_tab_only_lines, None),
                 (changeset_remove_indentation_version, None),
+                (changeset_remove_extra_tabs, None),
                 (changeset_remove_duplicate_keys, None),
                 (changeset_refactor_yml_str, schema_specs),
                 (changeset_owner_properties_yml_str, schema_specs),
@@ -795,6 +798,35 @@ def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRu
     )
 
 
+def changeset_remove_extra_tabs(yml_str: str) -> YMLRuleRefactorResult:
+    """Removes extra tabs in the YAML files"""
+    refactored = False
+    refactor_logs: List[str] = []
+
+    refactored_yaml = yml_str
+
+    for p in yamllint.linter.run(yml_str, yaml_config):
+        if "found character '\\t' that cannot start any token" in p.desc:
+            refactored = True
+            refactor_logs.append(f"Found extra tabs: line {p.line} - column {p.column}")
+            lines = yml_str.split("\n")
+            if p.line <= len(lines):
+                line = lines[p.line - 1]  # Convert to 0-based index
+                if p.column <= len(line):
+                    # Replace tab character with NUM_SPACES_TO_REPLACE_TAB spaces
+                    new_line = line[: p.column - 1] + " " * NUM_SPACES_TO_REPLACE_TAB + line[p.column :]
+                    lines[p.line - 1] = new_line
+                    refactored_yaml = "\n".join(lines)
+
+    return YMLRuleRefactorResult(
+        rule_name="remove_extra_tabs",
+        refactored=refactored,
+        refactored_yaml=refactored_yaml,
+        original_yaml=yml_str,
+        refactor_logs=refactor_logs,
+    )
+
+
 def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
     """Removes duplicate keys in the YAML files, keeping the first occurence only
     The drawback of keeping the first occurence is that we need to use PyYAML and then lose all the comments that were in the file
@@ -812,7 +844,7 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
 
         # we use dump from ruamel to keep indentation style but this loses quite a bit of formatting though
         # breakpoint()
-        refactored_yaml = DbtYAML().dump_to_string(yaml.safe_load(yml_str))  # type: ignore
+        refactored_yaml = DbtYAML().dump_to_string(yaml.safe_load(yml_str, sort_keys=False))  # type: ignore
     else:
         refactored_yaml = yml_str
 
