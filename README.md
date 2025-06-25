@@ -1,4 +1,4 @@
-# dbt-autofix (previously dbt-cleanup)
+# dbt-autofix
 
 dbt-autofix automatically scans your dbt project for deprecated configurations and updates them to align with the latest best practices. This makes it easier to resolve deprecation warnings introduced in dbt v1.10 as well as prepare for migration to the dbt Fusion engine.
 
