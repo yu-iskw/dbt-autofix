@@ -12,6 +12,7 @@ from dbt_autofix.refactor import (
     changeset_dbt_project_remove_deprecated_config,
     changeset_owner_properties_yml_str,
     changeset_refactor_yml_str,
+    changeset_remove_extra_tabs,
     changeset_remove_indentation_version,
     dict_to_yaml_str,
     rec_check_yaml_path,
@@ -1531,3 +1532,155 @@ models:
         # Check that appropriate logs were generated
         assert any("Field 'severity' is already under config" in log for log in result.refactor_logs)
         assert any("Field 'where' moved under config" in log for log in result.refactor_logs)
+
+
+class TestRemoveExtraTabs:
+    """Tests for changeset_remove_extra_tabs function"""
+
+    def test_no_tabs_no_changes(self):
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    description: "A test model"
+    columns:
+      - name: id
+        description: "Primary key"
+"""
+        result = changeset_remove_extra_tabs(input_yaml)
+        assert not result.refactored
+        assert len(result.refactor_logs) == 0
+        assert result.refactored_yaml == input_yaml
+        assert result.rule_name == "remove_extra_tabs"
+
+    def test_single_tab_replacement(self):
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+\t  description: "A test model"
+    columns:
+      - name: id
+"""
+        result = changeset_remove_extra_tabs(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "Found extra tabs: line 5 - column 1" in result.refactor_logs[0]
+        lines = result.refactored_yaml.split("\n")
+        assert lines[4] == '    description: "A test model"'  # 4 spaces (tab+2 spaces)
+
+    def test_multiple_tabs_replacement(self):
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+\t  description: "A test model"
+\t    columns:
+      - name: id
+\t        description: "Primary key"
+"""
+        result = changeset_remove_extra_tabs(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        lines = result.refactored_yaml.split("\n")
+        assert lines[4] == '    description: "A test model"'
+
+    def test_mixed_tabs_and_spaces(self):
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+\t  description: "A test model"  # tab + spaces
+    columns:
+      - name: id
+"""
+        result = changeset_remove_extra_tabs(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "Found extra tabs: line 5 - column 1" in result.refactor_logs[0]
+        lines = result.refactored_yaml.split("\n")
+        assert lines[4] == '    description: "A test model"  # tab + spaces'
+
+    def test_tab_only_line(self):
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+\t\t
+    columns:
+      - name: id
+"""
+        result = changeset_remove_extra_tabs(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "Found extra tabs: line 5 - column 1" in result.refactor_logs[0]
+        lines = result.refactored_yaml.split("\n")
+        assert lines[4] == "  \t"  # first tab replaced, second remains
+
+    def test_tab_with_comments(self):
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+\t  description: "A test model"  # comment with tab
+    columns:
+      - name: id
+"""
+        result = changeset_remove_extra_tabs(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "Found extra tabs: line 5 - column 1" in result.refactor_logs[0]
+        lines = result.refactored_yaml.split("\n")
+        assert lines[4] == '    description: "A test model"  # comment with tab'
+
+    def test_tab_in_list_items(self):
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    tags:
+      - tag1
+\t    - tag2
+      - tag3
+"""
+        result = changeset_remove_extra_tabs(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "Found extra tabs: line 7 - column 1" in result.refactor_logs[0]
+        lines = result.refactored_yaml.split("\n")
+        assert lines[6] == "      - tag2"  # 6 spaces (tab+4 spaces)
+
+    def test_tab_in_nested_structures(self):
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    config:
+\t    materialized: table
+      meta:
+\t      owner: team
+"""
+        result = changeset_remove_extra_tabs(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        lines = result.refactored_yaml.split("\n")
+        assert lines[5] == "      materialized: table"  # 6 spaces (tab+4 spaces)
+
+    def test_iterative_tab_removal(self):
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+\t  description: "A test model"
+\t    columns:
+      - name: id
+"""
+        result1 = changeset_remove_extra_tabs(input_yaml)
+        assert result1.refactored
+        assert len(result1.refactor_logs) == 1
+        result2 = changeset_remove_extra_tabs(result1.refactored_yaml)
+        assert result2.refactored
+        assert len(result2.refactor_logs) == 1
+        lines = result2.refactored_yaml.split("\n")
+        assert lines[4] == '    description: "A test model"'
+        assert lines[5] == "      columns:"
