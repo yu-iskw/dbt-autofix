@@ -20,12 +20,16 @@ dbt-autofix automatically scans your dbt project for deprecated configurations a
 
 ### From PyPi
 
+#### With uv (recommended)
+
 We recommend using `uv`/`uvx` to run the package.
 If you don't have `uv` installed, you can install `uv` and `uvx`, [following the instructions on the offical website](https://docs.astral.sh/uv/getting-started/installation/).
 
 - to run the latest version of the tool: `uvx dbt-autofix`
 - to run a specific version of the tool: `uvx dbt-autofix@0.1.2`
 - to install the tool as a dedicated CLI: `uv tool install dbt-autofix`
+
+#### With pip
 
 You can also use `pip` if you prefer, but we then recommend installing the tool in its own Python virtual environment. Once in a venv, install the tool with `pip install dbt-autofix` and then run `dbt-autofix ...` 
 
