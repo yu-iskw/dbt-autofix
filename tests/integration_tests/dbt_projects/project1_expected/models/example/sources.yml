@@ -36,7 +36,6 @@ sources:
         description: table1-description
 
         identifier: table1id
-        loaded_at_field: my_loaded_at_field
         tests:
           - dbt_expectations.expect_table_columns_to_contain_set:
               column_list: ["col_a", "col_b"]
@@ -63,6 +62,7 @@ sources:
                 my_meta: my-meta-value-col1
         
         config:
+          loaded_at_field: my_loaded_at_field
           tags:
             - my-other-tag
           freshness:
