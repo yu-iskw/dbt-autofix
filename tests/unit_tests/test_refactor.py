@@ -12,6 +12,7 @@ from dbt_autofix.refactor import (
     changeset_dbt_project_remove_deprecated_config,
     changeset_owner_properties_yml_str,
     changeset_refactor_yml_str,
+    changeset_remove_duplicate_keys,
     changeset_remove_extra_tabs,
     changeset_remove_indentation_version,
     dict_to_yaml_str,
@@ -1684,3 +1685,193 @@ models:
         lines = result2.refactored_yaml.split("\n")
         assert lines[4] == '    description: "A test model"'
         assert lines[5] == "      columns:"
+
+
+class TestRemoveDuplicateKeys:
+    """Tests for changeset_remove_duplicate_keys function"""
+
+    def test_no_duplicates_no_changes(self):
+        """Test that YAML without duplicate keys is not modified"""
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    description: "A test model"
+    columns:
+      - name: id
+        description: "Primary key"
+"""
+        result = changeset_remove_duplicate_keys(input_yaml)
+        assert not result.refactored
+        assert len(result.refactor_logs) == 0
+        assert result.refactored_yaml == input_yaml
+        assert result.rule_name == "remove_duplicate_keys"
+
+    def test_single_duplicate_key(self):
+        """Test that a single duplicate key is detected and removed"""
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    description: "First description"
+    description: "Second description"
+    columns:
+      - name: id
+"""
+        result = changeset_remove_duplicate_keys(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "Found duplicate keys: line" in result.refactor_logs[0]
+        assert "description" in result.refactor_logs[0]
+
+        # Verify the refactored YAML keeps only the last occurrence (yaml.safe_load behavior)
+        refactored_dict = safe_load(result.refactored_yaml)
+        model = refactored_dict["models"][0]
+        assert model["description"] == "Second description"
+
+    def test_multiple_duplicate_keys(self):
+        """Test that multiple duplicate keys are detected and removed"""
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    description: "First description"
+    description: "Second description"
+    materialized: table
+    materialized: view
+    columns:
+      - name: id
+        description: "Column description"
+        description: "Another description"
+"""
+        result = changeset_remove_duplicate_keys(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 3  # 3 duplicate keys found
+
+        # Verify the refactored YAML
+        refactored_dict = safe_load(result.refactored_yaml)
+        model = refactored_dict["models"][0]
+        assert model["description"] == "Second description"
+        assert model["materialized"] == "view"
+
+        column = model["columns"][0]
+        assert column["description"] == "Another description"
+
+    def test_nested_duplicate_keys(self):
+        """Test that duplicate keys in nested structures are detected"""
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    config:
+      materialized: table
+      materialized: view
+      meta:
+        owner: team1
+        owner: team2
+    columns:
+      - name: id
+        tests:
+          - unique
+          - unique
+"""
+        result = changeset_remove_duplicate_keys(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) >= 1
+
+        # Verify the refactored YAML
+        refactored_dict = safe_load(result.refactored_yaml)
+        model = refactored_dict["models"][0]
+        assert model["config"]["materialized"] == "view"
+        assert model["config"]["meta"]["owner"] == "team2"
+
+        column = model["columns"][0]
+        # Note: yaml.safe_load() only deduplicates dictionary keys, not list items
+        # So the duplicate 'unique' tests will remain as separate list items
+        assert len(column["tests"]) == 2  # Both unique tests remain
+        assert column["tests"] == ["unique", "unique"]
+
+    def test_duplicate_keys_with_comments(self):
+        """Test that duplicate keys are handled correctly with comments"""
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    # This is a comment
+    description: "First description"  # inline comment
+    description: "Second description"
+    columns:
+      - name: id
+"""
+        result = changeset_remove_duplicate_keys(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+
+        # Verify the refactored YAML
+        refactored_dict = safe_load(result.refactored_yaml)
+        model = refactored_dict["models"][0]
+        assert model["description"] == "Second description"
+
+    def test_duplicate_keys_in_sources(self):
+        """Test that duplicate keys in sources are detected"""
+        input_yaml = """
+version: 2
+sources:
+  - name: my_source
+    description: "First description"
+    description: "Second description"
+    tables:
+      - name: my_table
+        description: "Table description"
+        description: "Another table description"
+"""
+        result = changeset_remove_duplicate_keys(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) >= 1
+
+        # Verify the refactored YAML
+        refactored_dict = safe_load(result.refactored_yaml)
+        source = refactored_dict["sources"][0]
+        assert source["description"] == "Second description"
+
+        table = source["tables"][0]
+        assert table["description"] == "Another table description"
+
+    def test_duplicate_keys_in_tests(self):
+        """Test that duplicate keys in test configurations are detected"""
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    columns:
+      - name: id
+        tests:
+          - unique:
+              where: "id is not null"
+              where: "id > 0"
+          - not_null:
+              severity: error
+              severity: warn
+"""
+        result = changeset_remove_duplicate_keys(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) >= 1
+
+        # Verify the refactored YAML
+        refactored_dict = safe_load(result.refactored_yaml)
+        model = refactored_dict["models"][0]
+        column = model["columns"][0]
+
+        unique_test = column["tests"][0]
+        assert unique_test["unique"]["where"] == "id > 0"
+
+        not_null_test = column["tests"][1]
+        assert not_null_test["not_null"]["severity"] == "warn"
+
+    def test_empty_yaml(self):
+        """Test that empty YAML is handled correctly"""
+        input_yaml = ""
+        result = changeset_remove_duplicate_keys(input_yaml)
+        assert not result.refactored
+        assert len(result.refactor_logs) == 0
+        assert result.refactored_yaml == input_yaml
