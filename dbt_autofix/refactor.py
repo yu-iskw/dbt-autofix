@@ -134,6 +134,7 @@ class SQLRuleRefactorResult:
     refactored_content: str
     original_content: str
     refactor_logs: list[str]
+    dbt_deprecation_classes: list[str]
 
     def to_dict(self) -> dict:
         ret_dict = {
@@ -509,6 +510,7 @@ def process_sql_files(
                                 refactored_content=new_content,
                                 original_content=content,
                                 refactor_logs=logs,
+                                dbt_deprecation_classes=["UnexpectedJinjaBlockDeprecation"]
                             )
                         ],
                     )
