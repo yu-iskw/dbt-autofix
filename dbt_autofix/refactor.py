@@ -1039,12 +1039,13 @@ def get_dbt_paths(path: Path) -> Set[str]:
     with open(path / "dbt_project.yml", "r") as f:
         project_config = safe_load(f)
     model_paths = project_config.get("model-paths", ["models"])
+    seed_paths = project_config.get("seed-paths", ["seeds"])
     macro_paths = project_config.get("macro-paths", ["macros"])
     test_paths = project_config.get("test-paths", ["tests"])
     analysis_paths = project_config.get("analysis-paths", ["analyses"])
     snapshot_paths = project_config.get("snapshot-paths", ["snapshots"])
 
-    return set(model_paths + macro_paths + test_paths + analysis_paths + snapshot_paths)
+    return set(model_paths + seed_paths + macro_paths + test_paths + analysis_paths + snapshot_paths)
 
 
 def changeset_all_sql_yml_files(
