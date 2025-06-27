@@ -844,7 +844,7 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
 
         # we use dump from ruamel to keep indentation style but this loses quite a bit of formatting though
         # breakpoint()
-        refactored_yaml = DbtYAML().dump_to_string(yaml.safe_load(yml_str, sort_keys=False))  # type: ignore
+        refactored_yaml = DbtYAML().dump_to_string(yaml.safe_load(yml_str))  # type: ignore
     else:
         refactored_yaml = yml_str
 
