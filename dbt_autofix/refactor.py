@@ -810,20 +810,28 @@ def changeset_remove_extra_tabs(yml_str: str) -> YMLRuleRefactorResult:
     refactored = False
     refactor_logs: List[str] = []
 
-    refactored_yaml = yml_str
+    current_yaml = yml_str
 
-    for p in yamllint.linter.run(yml_str, yaml_config):
-        if "found character '\\t' that cannot start any token" in p.desc:
-            refactored = True
-            refactor_logs.append(f"Found extra tabs: line {p.line} - column {p.column}")
-            lines = yml_str.split("\n")
-            if p.line <= len(lines):
-                line = lines[p.line - 1]  # Convert to 0-based index
-                if p.column <= len(line):
-                    # Replace tab character with NUM_SPACES_TO_REPLACE_TAB spaces
-                    new_line = line[: p.column - 1] + " " * NUM_SPACES_TO_REPLACE_TAB + line[p.column :]
-                    lines[p.line - 1] = new_line
-                    refactored_yaml = "\n".join(lines)
+    while True:
+        found_tab_error = False
+        for p in yamllint.linter.run(current_yaml, yaml_config):
+            if "found character '\\t' that cannot start any token" in p.desc:
+                found_tab_error = True
+                refactored = True
+                refactor_logs.append(f"Found extra tabs: line {p.line} - column {p.column}")
+                lines = current_yaml.split("\n")
+                if p.line <= len(lines):
+                    line = lines[p.line - 1]  # Convert to 0-based index
+                    if p.column <= len(line):
+                        # Replace tab character with NUM_SPACES_TO_REPLACE_TAB spaces
+                        new_line = line[: p.column - 1] + " " * NUM_SPACES_TO_REPLACE_TAB + line[p.column :]
+                        lines[p.line - 1] = new_line
+                        current_yaml = "\n".join(lines)
+                        break  # Exit the yamllint loop to restart with updated content
+
+        if not found_tab_error:
+            refactored_yaml = current_yaml
+            break
 
     return YMLRuleRefactorResult(
         rule_name="remove_extra_tabs",
