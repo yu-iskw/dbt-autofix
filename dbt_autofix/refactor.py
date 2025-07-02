@@ -343,7 +343,7 @@ def changeset_remove_tab_only_lines(yml_str: str) -> YMLRuleRefactorResult:
 
 
 def process_yaml_files_except_dbt_project(
-    path: Path,
+    root_path: Path,
     model_paths: Iterable[str],
     schema_specs: SchemaSpecs,
     dry_run: bool = False,
@@ -361,8 +361,8 @@ def process_yaml_files_except_dbt_project(
     yaml_results: List[YMLRefactorResult] = []
 
     for model_path in model_paths:
-        yaml_files = set((path / Path(model_path)).resolve().glob("**/*.yml")).union(
-            set((path / Path(model_path)).resolve().glob("**/*.yaml"))
+        yaml_files = set((root_path / Path(model_path)).resolve().glob("**/*.yml")).union(
+            set((root_path / Path(model_path)).resolve().glob("**/*.yaml"))
         )
         for yml_file in yaml_files:
             if skip_file(yml_file, select):
@@ -411,24 +411,24 @@ def process_yaml_files_except_dbt_project(
 
 
 def process_dbt_project_yml(
-    path: Path, schema_specs: SchemaSpecs, dry_run: bool = False, exclude_dbt_project_keys: bool = False
+    root_path: Path, schema_specs: SchemaSpecs, dry_run: bool = False, exclude_dbt_project_keys: bool = False
 ) -> YMLRefactorResult:
     """Process dbt_project.yml"""
-    if not (path / "dbt_project.yml").exists():
-        error_console.print(f"Error: dbt_project.yml not found in {path}", style="red")
+    if not (root_path / "dbt_project.yml").exists():
+        error_console.print(f"Error: dbt_project.yml not found in {root_path}", style="red")
         return YMLRefactorResult(
             dry_run=dry_run,
-            file_path=path / "dbt_project.yml",
+            file_path=root_path / "dbt_project.yml",
             refactored=False,
             refactored_yaml="",
             original_yaml="",
             refactors=[],
         )
 
-    yml_str = (path / "dbt_project.yml").read_text()
+    yml_str = (root_path / "dbt_project.yml").read_text()
     yml_refactor_result = YMLRefactorResult(
         dry_run=dry_run,
-        file_path=path / "dbt_project.yml",
+        file_path=root_path / "dbt_project.yml",
         refactored=False,
         refactored_yaml=yml_str,
         original_yaml=yml_str,
@@ -438,7 +438,7 @@ def process_dbt_project_yml(
     changesets = [
         (changeset_remove_duplicate_keys, None),
         (changeset_dbt_project_remove_deprecated_config, exclude_dbt_project_keys),
-        (changeset_dbt_project_prefix_plus_for_config, path, schema_specs),
+        (changeset_dbt_project_prefix_plus_for_config, root_path, schema_specs),
     ]
 
     for changeset_func, *changeset_args in changesets:
@@ -810,20 +810,28 @@ def changeset_remove_extra_tabs(yml_str: str) -> YMLRuleRefactorResult:
     refactored = False
     refactor_logs: List[str] = []
 
-    refactored_yaml = yml_str
+    current_yaml = yml_str
 
-    for p in yamllint.linter.run(yml_str, yaml_config):
-        if "found character '\\t' that cannot start any token" in p.desc:
-            refactored = True
-            refactor_logs.append(f"Found extra tabs: line {p.line} - column {p.column}")
-            lines = yml_str.split("\n")
-            if p.line <= len(lines):
-                line = lines[p.line - 1]  # Convert to 0-based index
-                if p.column <= len(line):
-                    # Replace tab character with NUM_SPACES_TO_REPLACE_TAB spaces
-                    new_line = line[: p.column - 1] + " " * NUM_SPACES_TO_REPLACE_TAB + line[p.column :]
-                    lines[p.line - 1] = new_line
-                    refactored_yaml = "\n".join(lines)
+    while True:
+        found_tab_error = False
+        for p in yamllint.linter.run(current_yaml, yaml_config):
+            if "found character '\\t' that cannot start any token" in p.desc:
+                found_tab_error = True
+                refactored = True
+                refactor_logs.append(f"Found extra tabs: line {p.line} - column {p.column}")
+                lines = current_yaml.split("\n")
+                if p.line <= len(lines):
+                    line = lines[p.line - 1]  # Convert to 0-based index
+                    if p.column <= len(line):
+                        # Replace tab character with NUM_SPACES_TO_REPLACE_TAB spaces
+                        new_line = line[: p.column - 1] + " " * NUM_SPACES_TO_REPLACE_TAB + line[p.column :]
+                        lines[p.line - 1] = new_line
+                        current_yaml = "\n".join(lines)
+                        break  # Exit the yamllint loop to restart with updated content
+
+        if not found_tab_error:
+            refactored_yaml = current_yaml
+            break
 
     return YMLRuleRefactorResult(
         rule_name="remove_extra_tabs",
@@ -1045,11 +1053,12 @@ def changeset_dbt_project_prefix_plus_for_config(
     )
 
 
-def get_dbt_paths(path: Path) -> Set[str]:
+def get_dbt_files_paths(path: Path, include_packages: bool = False) -> Set[str]:
     """Get model and macro paths from dbt_project.yml
 
     Args:
         path: Project root path
+        include_packages: Whether to include packages in the refactoring
 
     Returns:
         A list of paths to the models, macros, tests, analyses, and snapshots
@@ -1068,15 +1077,71 @@ def get_dbt_paths(path: Path) -> Set[str]:
     analysis_paths = project_config.get("analysis-paths", ["analyses"])
     snapshot_paths = project_config.get("snapshot-paths", ["snapshots"])
 
-    return set(model_paths + seed_paths + macro_paths + test_paths + analysis_paths + snapshot_paths)
+    all_paths = set(model_paths + seed_paths + macro_paths + test_paths + analysis_paths + snapshot_paths)
+
+    if include_packages:
+        packages_path = project_config.get("packages-paths", "dbt_packages")
+        packages_dir = path / packages_path
+
+        if packages_dir.exists():
+            for package_folder in packages_dir.iterdir():
+                if package_folder.is_dir():
+                    package_dbt_project = package_folder / "dbt_project.yml"
+                    if package_dbt_project.exists():
+                        with open(package_dbt_project, "r") as f:
+                            package_config = safe_load(f)
+
+                        package_model_paths = package_config.get("model-paths", ["models"])
+                        package_seed_paths = package_config.get("seed-paths", ["seeds"])
+                        package_macro_paths = package_config.get("macro-paths", ["macros"])
+                        package_test_paths = package_config.get("test-paths", ["tests"])
+                        package_analysis_paths = package_config.get("analysis-paths", ["analyses"])
+                        package_snapshot_paths = package_config.get("snapshot-paths", ["snapshots"])
+
+                        # Combine package folder path with each path type
+                        for model_path in package_model_paths:
+                            all_paths.add(str(package_folder / model_path))
+                        for seed_path in package_seed_paths:
+                            all_paths.add(str(package_folder / seed_path))
+                        for macro_path in package_macro_paths:
+                            all_paths.add(str(package_folder / macro_path))
+                        for test_path in package_test_paths:
+                            all_paths.add(str(package_folder / test_path))
+                        for analysis_path in package_analysis_paths:
+                            all_paths.add(str(package_folder / analysis_path))
+                        for snapshot_path in package_snapshot_paths:
+                            all_paths.add(str(package_folder / snapshot_path))
+
+    return all_paths
 
 
-def changeset_all_sql_yml_files(
+def get_dbt_roots_paths(root_path: Path, include_packages: bool = False) -> Set[str]:
+    """Get all dbt root paths, the main one and the ones under dbt_packages directory if we want to include packages.
+
+    Args:
+        root_path: Project root path
+
+    Returns:
+        Set of package folder paths as strings
+    """
+    dbt_roots_paths = {str(root_path)}
+    dbt_packages_path = root_path / "dbt_packages"
+
+    if include_packages and dbt_packages_path.exists() and dbt_packages_path.is_dir():
+        for package_folder in dbt_packages_path.iterdir():
+            if package_folder.is_dir():
+                dbt_roots_paths.add(str(package_folder))
+
+    return dbt_roots_paths
+
+
+def changeset_all_sql_yml_files(  # noqa: PLR0913
     path: Path,
     schema_specs: SchemaSpecs,
     dry_run: bool = False,
     exclude_dbt_project_keys: bool = False,
     select: Optional[List[str]] = None,
+    include_packages: bool = False,
 ) -> Tuple[List[YMLRefactorResult], List[SQLRefactorResult]]:
     """Process all YAML files and SQL files in the project
 
@@ -1085,13 +1150,16 @@ def changeset_all_sql_yml_files(
         schema_specs: The schema specifications to use
         dry_run: Whether to perform a dry run
         exclude_dbt_project_keys: Whether to exclude dbt project keys
+        select: List of paths to select
+        include_packages: Whether to include packages in the refactoring
 
     Returns:
         Tuple containing:
         - List of YAML refactor results
         - List of SQL refactor results
     """
-    dbt_paths = get_dbt_paths(path)
+    dbt_paths = get_dbt_files_paths(path, include_packages)
+    dbt_roots_paths = get_dbt_roots_paths(path, include_packages)
 
     sql_results = process_sql_files(path, dbt_paths, dry_run, select)
 
@@ -1099,9 +1167,14 @@ def changeset_all_sql_yml_files(
     yaml_results = process_yaml_files_except_dbt_project(path, dbt_paths, schema_specs, dry_run, select)
 
     # Process dbt_project.yml
-    dbt_project_yml_result = process_dbt_project_yml(path, schema_specs, dry_run, exclude_dbt_project_keys)
 
-    return [*yaml_results, dbt_project_yml_result], sql_results
+    dbt_project_yml_results = []
+    for dbt_root_path in dbt_roots_paths:
+        dbt_project_yml_results.append(
+            process_dbt_project_yml(Path(dbt_root_path), schema_specs, dry_run, exclude_dbt_project_keys)
+        )
+
+    return [*yaml_results, *dbt_project_yml_results], sql_results
 
 
 def apply_changesets(
