@@ -57,6 +57,7 @@ uv tool install --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-autof
   - add `--json` to get resulting data in a JSONL format
   - add `--json-schema-version v2.0.0-beta.4` to get the JSON schema from a specific Fusion release (by default we pick the latest)
   - add `--select <path>` to only select files in a given path (by default the tool will look at all files of the dbt project)
+  - add `--include-packages` to also autofix the packages installed. Just note that those fixes will be reverted at the next `dbt deps` and the long term fix will be to update the packages to versions compatible with Fusion.
 
 Each JSON object will have the following keys:
 
