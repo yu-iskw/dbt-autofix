@@ -1027,10 +1027,10 @@ def replace_node_name_spaces_with_underscores(node: dict[str, str], node_type: s
         if key == "name" and " " in value:
             new_value = value.replace(" ", "_")
             node_copy[key] = new_value
+
             node_refactor_logs.append(
                 f"{pretty_node_type} '{node['name']} - Updated 'name' from '{value}' to '{new_value}'."
             )
-
     refactored = len(node_refactor_logs) != 0
 
     return node_copy, refactored, node_refactor_logs
