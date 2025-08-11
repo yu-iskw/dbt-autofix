@@ -26,6 +26,13 @@ from dbt_autofix.retrieve_schemas import (
 
 NUM_SPACES_TO_REPLACE_TAB = 2
 
+COMMON_PROPERTY_MISSPELLINGS = {
+    "desciption": "description",
+    "descrption": "description",
+    "descritption": "description",
+    "desscription": "description",
+}
+
 console = Console()
 error_console = Console(stderr=True)
 
@@ -845,6 +852,19 @@ def restructure_yaml_keys_for_node(
     for field in copy_node:
         if field in schema_specs.yaml_specs_per_node_type[node_type].allowed_properties:
             continue
+        # This is very hard-coded because it is a 'safe' fix and we don't want to break the user's code
+        elif field.lower() in COMMON_PROPERTY_MISSPELLINGS.keys():
+            refactored = True
+            correct_field = COMMON_PROPERTY_MISSPELLINGS[field.lower()]
+            deprecation_refactors.append(
+                DbtDeprecationRefactor(
+                    log=f"{pretty_node_type} '{node.get('name', '')}' - Field '{field}' is a common misspelling of '{correct_field}', it has been renamed.",
+                    deprecation=DeprecationType.CUSTOM_KEY_IN_OBJECT_DEPRECATION
+                )
+            )
+            node[correct_field] = node[field]
+            del node[field]
+            continue
 
         if field in schema_specs.yaml_specs_per_node_type[node_type].allowed_config_fields_without_meta:
             refactored = True
@@ -955,6 +975,7 @@ def restructure_yaml_keys_for_test(
         test_name = test["test_name"]
         test_definition = test
 
+    deprecation_refactors.extend(refactor_test_common_misspellings(test_definition, test_name))
     deprecation_refactors.extend(refactor_test_config_fields(test_definition, test_name, schema_specs))
     deprecation_refactors.extend(refactor_test_args(test_definition, test_name))
 
@@ -993,6 +1014,22 @@ def refactor_test_config_fields(test_definition: Dict[str, Any], test_name: str,
                     )
                 )
                 test_definition["config"] = node_config
+            del test_definition[field]
+
+    return deprecation_refactors
+
+def refactor_test_common_misspellings(test_definition: Dict[str, Any], test_name: str) -> List[DbtDeprecationRefactor]:
+    deprecation_refactors: List[DbtDeprecationRefactor] = []
+
+    for field in test_definition:
+        if field.lower() in COMMON_PROPERTY_MISSPELLINGS.keys():
+            deprecation_refactors.append(
+                DbtDeprecationRefactor(
+                    log=f"Test '{test_name}' - Field '{field}' is a common misspelling of '{COMMON_PROPERTY_MISSPELLINGS[field.lower()]}', it has been renamed.",
+                    deprecation=DeprecationType.CUSTOM_KEY_IN_OBJECT_DEPRECATION
+                )
+            )
+            test_definition[COMMON_PROPERTY_MISSPELLINGS[field.lower()]] = test_definition[field]
             del test_definition[field]
 
     return deprecation_refactors
@@ -1064,7 +1101,7 @@ def changeset_refactor_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRu
     - moves all the meta fields under config.meta and merges with existing config.meta
     - moves all the unknown fields under config.meta
     - provide some information if some fields don't exist but are similar to allowed fields
-    - remove custom top-level keys
+    - removes custom top-level keys
     """
     refactored = False
     deprecation_refactors: List[DbtDeprecationRefactor] = []
