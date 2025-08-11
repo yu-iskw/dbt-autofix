@@ -26,8 +26,6 @@ from dbt_autofix.retrieve_schemas import (
 
 NUM_SPACES_TO_REPLACE_TAB = 2
 
-REFACTOR_TEST_ARGS = False
-
 console = Console()
 error_console = Console(stderr=True)
 
@@ -683,6 +681,7 @@ def process_dbt_project_yml(
     ]
     safe_change_rules = [
         (changeset_remove_duplicate_keys, None),
+        (changeset_dbt_project_flip_test_arguments_behavior_flag, None),
         (changeset_dbt_project_remove_deprecated_config, exclude_dbt_project_keys),
         (changeset_dbt_project_prefix_plus_for_config, root_path, schema_specs),
     ]
@@ -702,11 +701,6 @@ def process_dbt_project_yml(
             yml_refactor_result.refactors.append(changeset_result)
             yml_refactor_result.refactored = True
             yml_refactor_result.refactored_yaml = changeset_result.refactored_yaml
-
-    # Temporary hack to check if it is safe to refactor test args
-    if (DbtYAML().load(yml_str) or {}).get("flags", {}).get("require_generic_test_arguments_property", False):
-        global REFACTOR_TEST_ARGS
-        REFACTOR_TEST_ARGS = True
 
     return yml_refactor_result
 
@@ -962,8 +956,7 @@ def restructure_yaml_keys_for_test(
         test_definition = test
 
     deprecation_refactors.extend(refactor_test_config_fields(test_definition, test_name, schema_specs))
-    if REFACTOR_TEST_ARGS:
-        deprecation_refactors.extend(refactor_test_args(test_definition, test_name))
+    deprecation_refactors.extend(refactor_test_args(test_definition, test_name))
 
     return test, len(deprecation_refactors) > 0, deprecation_refactors
 
@@ -1011,24 +1004,23 @@ def refactor_test_args(test_definition: Dict[str, Any], test_name: str) -> List[
     deprecation_refactors: List[DbtDeprecationRefactor] = []
 
     copy_test_definition = deepcopy(test_definition)
-    if test_name not in ("unique", "not_null", "accepted_values", "relationships") or "test_name" in copy_test_definition:
-        # Avoid refactoring if the test already has an arguments key that is not a dict
-        if "arguments" in test_definition and not isinstance(test_definition["arguments"], dict):
-            return deprecation_refactors
+    # Avoid refactoring if the test already has an arguments key that is not a dict
+    if "arguments" in test_definition and not isinstance(test_definition["arguments"], dict):
+        return deprecation_refactors
 
-        for field in copy_test_definition:
-            # TODO: pull from CustomTestMultiKey on schema_specs once available in jsonschemas
-            if field in ("config", "arguments", "test_name", "name", "description", "column_name"):
-                continue
-            deprecation_refactors.append(
-                DbtDeprecationRefactor(
-                    log=f"Test '{test_name}' - Custom test argument '{field}' moved under 'arguments'.",
-                    deprecation=DeprecationType.MISSING_GENERIC_TEST_ARGUMENTS_PROPERTY_DEPRECATION
-                )
+    for field in copy_test_definition:
+        # TODO: pull from CustomTestMultiKey on schema_specs once available in jsonschemas
+        if field in ("config", "arguments", "test_name", "name", "description", "column_name"):
+            continue
+        deprecation_refactors.append(
+            DbtDeprecationRefactor(
+                log=f"Test '{test_name}' - Custom test argument '{field}' moved under 'arguments'.",
+                deprecation=DeprecationType.MISSING_GENERIC_TEST_ARGUMENTS_PROPERTY_DEPRECATION
             )
-            test_definition["arguments"] = test_definition.get("arguments", {})
-            test_definition["arguments"].update({field: test_definition[field]})
-            del test_definition[field]
+        )
+        test_definition["arguments"] = test_definition.get("arguments", {})
+        test_definition["arguments"].update({field: test_definition[field]})
+        del test_definition[field]
     
     return deprecation_refactors
 
@@ -1557,12 +1549,38 @@ def changeset_dbt_project_flip_behavior_flags(yml_str: str) -> YMLRuleRefactorRe
                     refactored = True
                     deprecation_refactors.append(
                         DbtDeprecationRefactor(
-                            log=f"Set flag '{behavior_change_flag}' to 'True' - This will {behavior_change_flag_to_explainations[behavior_change_flag]}."
+                            log=f"Set flag '{behavior_change_flag}' to 'True' - This will {behavior_change_flag_to_explainations[behavior_change_flag]}.",
+                            deprecation="SourceFreshnessProjectHooksNotRun"
                         )
                     )
 
     return YMLRuleRefactorResult(
             rule_name="flip_behavior_flags",
+            refactored=refactored,
+            refactored_yaml=DbtYAML().dump_to_string(yml_dict) if refactored else yml_str,  # type: ignore
+            original_yaml=yml_str,
+            deprecation_refactors=deprecation_refactors,
+        )
+
+def changeset_dbt_project_flip_test_arguments_behavior_flag(yml_str: str) -> YMLRuleRefactorResult:
+    yml_dict = DbtYAML().load(yml_str) or {}
+    deprecation_refactors: List[DbtDeprecationRefactor] = []
+    refactored = False
+
+    existing_flags = yml_dict.get("flags", {})
+    if existing_flags.get("require_generic_test_arguments_property") is False or "require_generic_test_arguments_property" not in existing_flags:
+        yml_dict["flags"] = existing_flags
+        yml_dict["flags"]["require_generic_test_arguments_property"] = True
+        refactored = True
+        deprecation_refactors.append(
+            DbtDeprecationRefactor(
+                log="Set flag 'require_generic_test_arguments_property' to 'True' - This will parse the values defined within the `arguments` property of test definition as the test keyword arguments.",
+                deprecation="MissingGenericTestArgumentsPropertyDeprecation"
+            )
+        )
+
+    return YMLRuleRefactorResult(
+            rule_name="changeset_dbt_project_flip_test_arguments_behavior_flag",
             refactored=refactored,
             refactored_yaml=DbtYAML().dump_to_string(yml_dict) if refactored else yml_str,  # type: ignore
             original_yaml=yml_str,
