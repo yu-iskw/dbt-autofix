@@ -15,6 +15,9 @@ from ruamel.yaml import YAML
 from ruamel.yaml.compat import StringIO
 from yaml import safe_load
 
+
+from dbt_common.clients.jinja import get_template, render_template
+from dbt_autofix.jinja import statically_parse_unrendered_config
 from dbt_autofix.deprecations import DeprecationType
 from dbt_autofix.retrieve_schemas import (
     DbtProjectSpecs,
@@ -320,6 +323,157 @@ def remove_unmatched_endings(sql_content: str) -> SQLRuleRefactorResult:  # noqa
     )
 
 
+def move_custom_configs_to_meta_sql(sql_content: str, schema_specs: SchemaSpecs, node_type: str) -> SQLRuleRefactorResult:
+    """Move custom configs to meta in SQL files.
+
+    Args:
+        sql_content: The SQL content to process
+        schema_specs: The schema specifications to use
+        node_type: The type of node to process
+    """
+    refactored = False
+    deprecation_refactors: List[DbtDeprecationRefactor] = []
+
+    # Capture original config macro calls
+    original_sql_configs = {}
+    def capture_config(*args, **kwargs):
+        original_sql_configs.update(kwargs)
+
+    ctx = {"config": capture_config}
+    template = get_template(sql_content, ctx=ctx, capture_macros=True)
+
+    # Crude way to avoid rendering the template if it doesn't contain 'config'
+    if "config(" in sql_content:
+        render_template(template, ctx=ctx)
+
+    statically_parsed_config = statically_parse_unrendered_config(sql_content) or {}
+
+    # Refactor config based on schema specs
+    refactored_sql_configs = deepcopy(original_sql_configs)
+    moved_to_meta = []
+    for sql_config_key, sql_config_value in original_sql_configs.items():
+        # If the config key is not in the schema specs, move it to meta
+        allowed_config_fields = schema_specs.yaml_specs_per_node_type[node_type].allowed_config_fields
+
+        # Special casing snapshots because target_schema and target_database are renamed by another autofix rule
+        if node_type == "snapshots":
+            allowed_config_fields = allowed_config_fields.union({"target_schema", "target_database"})
+
+        if sql_config_key not in allowed_config_fields:
+            if "meta" not in refactored_sql_configs:
+                refactored_sql_configs["meta"] = {}
+            refactored_sql_configs["meta"].update({sql_config_key: sql_config_value})
+            moved_to_meta.append(sql_config_key)
+            del refactored_sql_configs[sql_config_key]
+
+    # Update {{ config(...) }} macro call with new configs if any were moved to meta
+    refactored_content = None
+    if refactored_sql_configs != original_sql_configs:
+        # Determine if jinja rendering occurred as part of config macro call
+        original_config_str = _serialize_config_macro_call(original_sql_configs)
+        post_render_statically_parsed_config = statically_parse_unrendered_config(f"{{{{ config({original_config_str}) }}}}")
+        if post_render_statically_parsed_config == statically_parsed_config:
+            refactored = True
+            deprecation_refactors.append(
+                DbtDeprecationRefactor(
+                    log=f"Moved custom config{'s' if len(moved_to_meta) > 1 else ''} {moved_to_meta} to meta",
+                    deprecation=DeprecationType.CUSTOM_KEY_IN_CONFIG_DEPRECATION
+                )
+            )
+            config_pattern = re.compile(r"(\{\{\s*config\s*\()(.*?)(\)\s*\}\})", re.DOTALL)
+            new_config_str = _serialize_config_macro_call(refactored_sql_configs)
+            def replace_config(match):
+                return f"{{{{ config({new_config_str}) }}}}"
+            refactored_content = config_pattern.sub(replace_config, sql_content, count=1)
+
+    return SQLRuleRefactorResult(
+        rule_name="move_custom_configs_to_meta_sql",
+        refactored=refactored,
+        refactored_content=refactored_content or sql_content,
+        original_content=sql_content,
+        deprecation_refactors=deprecation_refactors,
+    )
+
+def _serialize_config_macro_call(config_dict: dict) -> str:
+    items = []
+    for k, v in config_dict.items():
+        if isinstance(v, str):
+            v_str = f'"{v}"'
+        else:
+            v_str = str(v)
+        items.append(f"{k}={v_str}")
+    return ", ".join(items)
+
+def move_custom_config_access_to_meta_sql(sql_content: str, schema_specs: SchemaSpecs, node_type: str) -> SQLRuleRefactorResult:
+    """Move custom config access to meta in SQL files.
+
+    Args:
+        sql_content: The SQL content to process
+        schema_specs: The schema specifications to use
+        node_type: The type of node to process
+    """
+    refactored = False
+    refactored_content = sql_content
+    deprecation_refactors: List[DbtDeprecationRefactor] = []
+
+    # Crude way to avoid refactoring the file if it contains any cusotm 'config' variable
+    if "set config" in sql_content:
+        return SQLRuleRefactorResult(
+            rule_name="move_custom_config_access_to_meta_sql",
+            refactored=False,
+            refactored_content=sql_content,
+            original_content=sql_content,
+            deprecation_refactors=[],
+        )
+    
+    # Find all instances of config.get(<config-key>, <default>) or config.get(<config-key>)
+    pattern = re.compile(
+        r"config\.get\(\s*([\"'])(?P<key>.+?)\1\s*(?:,\s*(?P<default>[^)]+))?\)"
+    )
+    # To safely replace multiple matches in a string, collect all replacements first,
+    # then apply them in reverse order (from end to start) so indices remain valid.
+    matches = list(pattern.finditer(refactored_content))
+    replacements = []
+    allowed_config_fields = set()
+    for specs in schema_specs.yaml_specs_per_node_type.values():
+        allowed_config_fields.update(specs.allowed_config_fields)
+
+    for match in matches:
+        config_key = match.group("key")
+        default = match.group("default")
+
+        if config_key in allowed_config_fields:
+            continue
+
+        start, end = match.span()
+        if default is None:
+            replacement = f"config.get('meta').{config_key}"
+        else:
+            replacement = f"(config.get('meta').{config_key} or {default})"
+        replacements.append((start, end, replacement, match.group(0)))
+        refactored = True
+
+    # Apply replacements in reverse order to avoid messing up indices
+    for start, end, replacement, original in reversed(replacements):
+        refactored_content = refactored_content[:start] + replacement + refactored_content[end:]
+        deprecation_refactors.append(
+            DbtDeprecationRefactor(
+                log=f'Refactored "{original}" to "{replacement}"',
+                # Core does not explicitly raise a deprecation for usage of config.get() in SQL files
+                deprecation=None
+            )
+        )
+
+    return SQLRuleRefactorResult(
+        rule_name="move_custom_config_access_to_meta_sql",
+        refactored=refactored,
+        refactored_content=refactored_content,
+        original_content=sql_content,
+        deprecation_refactors=deprecation_refactors,
+    )
+
+
+
 def rename_sql_file_names_with_spaces(sql_content: str, sql_file_path: Path):
     deprecation_refactors: List[DbtDeprecationRefactor] = []
 
@@ -478,23 +632,23 @@ def process_yaml_files_except_dbt_project(
             changesets = all_rules if all else behavior_change_rules if behavior_change else safe_change_rules
 
             # Apply each changeset in sequence
-            try:
-                for changeset_func, changeset_args in changesets:
-                    if changeset_args is None:
-                        changeset_result = changeset_func(yml_refactor_result.refactored_yaml)
-                    else:
-                        changeset_result = changeset_func(yml_refactor_result.refactored_yaml, changeset_args)
+            # try:
+            for changeset_func, changeset_args in changesets:
+                if changeset_args is None:
+                    changeset_result = changeset_func(yml_refactor_result.refactored_yaml)
+                else:
+                    changeset_result = changeset_func(yml_refactor_result.refactored_yaml, changeset_args)
 
-                    if changeset_result.refactored:
-                        yml_refactor_result.refactors.append(changeset_result)
-                        yml_refactor_result.refactored = True
-                        yml_refactor_result.refactored_yaml = changeset_result.refactored_yaml
+                if changeset_result.refactored:
+                    yml_refactor_result.refactors.append(changeset_result)
+                    yml_refactor_result.refactored = True
+                    yml_refactor_result.refactored_yaml = changeset_result.refactored_yaml
 
                 yaml_results.append(yml_refactor_result)
 
-            except Exception as e:
-                error_console.print(f"Error processing YAML at path {yml_file}: {e.__class__.__name__}: {e}", style="bold red")
-                exit(1)
+            # except Exception as e:
+                # error_console.print(f"Error processing YAML at path {yml_file}: {e.__class__.__name__}: {e}", style="bold red")
+                # exit(1)
 
     return yaml_results
 
@@ -567,7 +721,8 @@ def skip_file(file_path: Path, select: Optional[List[str]] = None) -> bool:
 
 def process_sql_files(
     path: Path,
-    sql_paths: Iterable[str],
+    sql_paths_to_node_type: Dict[str, str],
+    schema_specs: SchemaSpecs,
     dry_run: bool = False,
     select: Optional[List[str]] = None,
     behavior_change: bool = False,
@@ -589,16 +744,18 @@ def process_sql_files(
     results: List[SQLRefactorResult] = []
 
     behavior_change_rules = [
-        (rename_sql_file_names_with_spaces, True)
+        (rename_sql_file_names_with_spaces, True, False)
     ]
     safe_change_rules = [
-        (remove_unmatched_endings, False)
+        (remove_unmatched_endings, False, False),
+        (move_custom_configs_to_meta_sql, False, True),
+        (move_custom_config_access_to_meta_sql, False, True)
     ]
     all_rules = [*behavior_change_rules, *safe_change_rules]
 
     process_sql_file_rules = all_rules if all else behavior_change_rules if behavior_change else safe_change_rules
 
-    for sql_path in sql_paths:
+    for sql_path, node_type in sql_paths_to_node_type.items():
         full_path = (path / sql_path).resolve()
         if not full_path.exists():
             error_console.print(f"Warning: Path {full_path} does not exist", style="yellow")
@@ -616,9 +773,13 @@ def process_sql_files(
                 new_content = original_content
 
                 new_file_path = sql_file
-                for sql_file_rule, requires_file_path in process_sql_file_rules:
-                    if requires_file_path:
+                for sql_file_rule, requires_file_path, requires_schema_specs in process_sql_file_rules:
+                    if requires_file_path and requires_schema_specs:
+                        sql_file_refactor_result = sql_file_rule(new_content, new_file_path, schema_specs, node_type)
+                    elif requires_file_path:
                         sql_file_refactor_result = sql_file_rule(new_content, new_file_path)
+                    elif requires_schema_specs:
+                        sql_file_refactor_result = sql_file_rule(new_content, schema_specs, node_type)
                     else:
                         sql_file_refactor_result = sql_file_rule(new_content)
 
@@ -663,9 +824,10 @@ def restructure_yaml_keys_for_node(
     refactored = False
     deprecation_refactors: List[DbtDeprecationRefactor] = []
     existing_meta = node.get("meta", {}).copy()
+    existing_config = node.get("config", {}).copy()
     pretty_node_type = node_type[:-1].title()
 
-    for field in node.get("config", {}):
+    for field in existing_config:
         # Special casing target_schema and target_database because they are renamed by another autofix rule
         if field in schema_specs.yaml_specs_per_node_type[node_type].allowed_config_fields or field in ("target_schema", "target_database"):
             continue
@@ -1407,7 +1569,7 @@ def changeset_dbt_project_flip_behavior_flags(yml_str: str) -> YMLRuleRefactorRe
             deprecation_refactors=deprecation_refactors,
         )
 
-def get_dbt_files_paths(path: Path, include_packages: bool = False) -> Set[str]:
+def get_dbt_files_paths(root_path: Path, include_packages: bool = False) -> Dict[str, str]:
     """Get model and macro paths from dbt_project.yml
 
     Args:
@@ -1418,15 +1580,15 @@ def get_dbt_files_paths(path: Path, include_packages: bool = False) -> Set[str]:
         A list of paths to the models, macros, tests, analyses, and snapshots
     """
 
-    if not (path / "dbt_project.yml").exists():
-        error_console.print(f"Error: dbt_project.yml not found in {path}", style="red")
-        return set()
+    if not (root_path / "dbt_project.yml").exists():
+        error_console.print(f"Error: dbt_project.yml not found in {root_path}", style="red")
+        return {}
 
-    with open(path / "dbt_project.yml", "r") as f:
+    with open(root_path / "dbt_project.yml", "r") as f:
         project_config = safe_load(f)
 
     if project_config is None:
-        return set()
+        return {}
 
     key_to_paths = {
         "model-paths": project_config.get("model-paths", ["models"]),
@@ -1437,16 +1599,27 @@ def get_dbt_files_paths(path: Path, include_packages: bool = False) -> Set[str]:
         "snapshot-paths": project_config.get("snapshot-paths", ["snapshots"]),
     }
 
-    all_paths = set()
+    key_to_node_type = {
+        "model-paths": "models",
+        "seed-paths": "seeds",
+        "macro-paths": "macros",
+        "test-paths": "tests",
+        "analysis-paths": "analyses",
+        "snapshot-paths": "snapshots",
+    }
+
+    path_to_node_type = {}
+
     for key, paths in key_to_paths.items():
         if not isinstance(paths, list):
             error_console.print(f"Warning: Paths '{paths}' for '{key}' cannot be autofixed", style="yellow")
             continue
-        all_paths.update(paths)
+        for path in paths:
+            path_to_node_type[str(path)] = key_to_node_type[key]
 
     if include_packages:
         packages_path = project_config.get("packages-paths", "dbt_packages")
-        packages_dir = path / packages_path
+        packages_dir = root_path / packages_path
 
         if packages_dir.exists():
             for package_folder in packages_dir.iterdir():
@@ -1465,19 +1638,19 @@ def get_dbt_files_paths(path: Path, include_packages: bool = False) -> Set[str]:
 
                         # Combine package folder path with each path type
                         for model_path in package_model_paths:
-                            all_paths.add(str(package_folder / model_path))
+                            path_to_node_type[str(package_folder / model_path)] = "models"
                         for seed_path in package_seed_paths:
-                            all_paths.add(str(package_folder / seed_path))
+                            path_to_node_type[str(package_folder / seed_path)] = "seeds"
                         for macro_path in package_macro_paths:
-                            all_paths.add(str(package_folder / macro_path))
+                            path_to_node_type[str(package_folder / macro_path)] = "macros"
                         for test_path in package_test_paths:
-                            all_paths.add(str(package_folder / test_path))
+                            path_to_node_type[str(package_folder / test_path)] = "tests"
                         for analysis_path in package_analysis_paths:
-                            all_paths.add(str(package_folder / analysis_path))
+                            path_to_node_type[str(package_folder / analysis_path)] = "analyses"
                         for snapshot_path in package_snapshot_paths:
-                            all_paths.add(str(package_folder / snapshot_path))
+                            path_to_node_type[str(package_folder / snapshot_path)] = "snapshots"
 
-    return all_paths
+    return path_to_node_type
 
 
 def get_dbt_roots_paths(root_path: Path, include_packages: bool = False) -> Set[str]:
@@ -1527,10 +1700,11 @@ def changeset_all_sql_yml_files(  # noqa: PLR0913
         - List of YAML refactor results
         - List of SQL refactor results
     """
-    dbt_paths = get_dbt_files_paths(path, include_packages)
+    dbt_paths_to_node_type = get_dbt_files_paths(path, include_packages)
+    dbt_paths = list(dbt_paths_to_node_type.keys())
     dbt_roots_paths = get_dbt_roots_paths(path, include_packages)
 
-    sql_results = process_sql_files(path, dbt_paths, dry_run, select, behavior_change, all)
+    sql_results = process_sql_files(path, dbt_paths_to_node_type, schema_specs, dry_run, select, behavior_change, all)
 
     # Process dbt_project.yml
     dbt_project_yml_results = []
