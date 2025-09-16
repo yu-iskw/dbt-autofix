@@ -3,9 +3,7 @@
 
 ## What
 
-Make AI agents like Claude Code and Open AI Codex do the work of getting internal-analytics to be Fusion compatilbe.
 
-The goal is that it'll use not only `dbtf init --fusion-upgrade` and `dbt-autofix`, but also tackle the inevitable manual work.
 
 ## Goals
 
@@ -85,7 +83,7 @@ Rather than providing just the newest version, you should provide a compatibilit
 
 ```
 
-Additionally, the `package-lock.yml` will also have to be upgraded.
+Additionally, the `package-lock.yml` will also have to be upgraded. To do so, delete both the `package-lock.yml` and the `dbt_packages/` directory, before running `dbt deps` again which will recreate them both again.
 
 If new package versions introduce new parse or compile errors, check the package's release notes, in case there's breaking changes that have to be accommodated.
 
