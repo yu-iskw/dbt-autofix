@@ -1,9 +1,4 @@
-
-# Make AI agents do the dirty work
-
-## What
-
-
+# `AGENTS.md`
 
 ## Goals
 
