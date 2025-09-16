@@ -10,8 +10,8 @@ As more issues are discovered, this AGENTS.md will be augmented to include more 
 
 if a user says "migrate me to the new authoring layer" what that really means is that they want to have the following commands complete with no errors (i.e. exit code 1).
 
-1. `dbtf debug --show-all-deprecations`
-2. `dbtf parse`
+1. `dbtf debug`
+2. `dbtf parse --show-all-deprecations`
 3. `dbtf compile --static-analysis off`
 4. `dbtf compile`
 5. `dbtf run`
