@@ -14,7 +14,6 @@ if a user says "migrate me to the new authoring layer" what that really means is
 2. `dbtf parse --show-all-deprecations`
 3. `dbtf compile --static-analysis off`
 4. `dbtf compile`
-5. `dbtf run`
 6. `dbtf test`
 
 the best way to do this today is to start with a migration wizard that's build into the dbt Fusion CLI.
