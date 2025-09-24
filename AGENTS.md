@@ -29,12 +29,15 @@ If it still fails to parse after autofix, consider if the problem is one of the 
 
 If a parse can be successful, it's worth returning to `dbtf init --fusion-upgrade` that will help you try the next step.
 
-
-## Problems that cannot be automatically fixed
-
-see the [`manual_fixes/`](./manual_fixes/) directory for a more info.
-
 ## Resources
+
+### Problems that cannot be automatically fixed
+
+- [Custom configurations](./manual_fixes/custom_configuration.md)
+- [Limitations of Dynamic SQL](./manual_fixes/dynamic_sql.md)
+- [Misspelled config keys](./manual_fixes/misspelled_config_keys.md)
+- [package incompatibility](./manual_fixes/package_incompatibility.md)
+- [sources defined in YAML without tables defined](./manual_fixes/sources_without_tables.md)
 
 
 ### dbt docs
