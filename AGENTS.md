@@ -33,11 +33,11 @@ If a parse can be successful, it's worth returning to `dbtf init --fusion-upgrad
 
 ### Problems that cannot be automatically fixed
 
-- [Custom configurations](./manual_fixes/custom_configuration.md)
-- [Limitations of Dynamic SQL](./manual_fixes/dynamic_sql.md)
-- [Misspelled config keys](./manual_fixes/misspelled_config_keys.md)
-- [package incompatibility](./manual_fixes/package_incompatibility.md)
-- [sources defined in YAML without tables defined](./manual_fixes/sources_without_tables.md)
+- [Custom configurations](https://github.com/dbt-labs/dbt-autofix/blob/main/manual_fixes/custom_configuration.md)
+- [Limitations of Dynamic SQL](https://github.com/dbt-labs/dbt-autofix/blob/main/manual_fixes/manual_fixes/dynamic_sql.md)
+- [Misspelled config keys](https://github.com/dbt-labs/dbt-autofix/blob/main/manual_fixes/manual_fixes/misspelled_config_keys.md)
+- [package incompatibility](https://github.com/dbt-labs/dbt-autofix/blob/main/manual_fixes/manual_fixes/package_incompatibility.md)
+- [sources defined in YAML without tables defined](https://github.com/dbt-labs/dbt-autofix/blob/main/manual_fixes/manual_fixes/sources_without_tables.md)
 
 
 ### dbt docs
