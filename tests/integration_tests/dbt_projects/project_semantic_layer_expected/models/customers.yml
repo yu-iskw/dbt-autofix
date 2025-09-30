@@ -50,6 +50,7 @@ models:
       - name: customers
         type: simple
         label: customers
+        hidden: true
         description: Count of unique customers
         agg: count_distinct
       - name: count_lifetime_orders
