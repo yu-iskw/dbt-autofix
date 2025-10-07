@@ -10,14 +10,19 @@ from dbt_autofix.retrieve_schemas import (
     SchemaSpecs,
 )
 from dbt_autofix.refactors.yml import yaml_config, DbtYAML
-from dbt_autofix.refactors.results import YMLRefactorResult, YMLRuleRefactorResult, SQLRefactorResult, DbtDeprecationRefactor
+from dbt_autofix.refactors.results import (
+    YMLRefactorResult,
+    YMLRuleRefactorResult,
+    SQLRefactorResult,
+    DbtDeprecationRefactor,
+)
 from dbt_autofix.refactors.changesets.dbt_schema_yml import (
     changeset_remove_tab_only_lines,
     changeset_remove_indentation_version,
     changeset_remove_extra_tabs,
     changeset_refactor_yml_str,
     changeset_owner_properties_yml_str,
-    changeset_replace_non_alpha_underscores_in_name_values
+    changeset_replace_non_alpha_underscores_in_name_values,
 )
 from dbt_autofix.refactors.changesets.dbt_project_yml import (
     changeset_dbt_project_flip_behavior_flags,
@@ -106,7 +111,9 @@ def process_yaml_files_except_dbt_project(
             ],
         ]
 
-    def _apply_changesets(file_name_to_yaml_results: Dict[str, YMLRefactorResult], changesets: List[Tuple[Callable, Any]]) -> None:
+    def _apply_changesets(
+        file_name_to_yaml_results: Dict[str, YMLRefactorResult], changesets: List[Tuple[Callable, Any]]
+    ) -> None:
         for model_path in model_paths:
             yaml_files = set((root_path / Path(model_path)).resolve().glob("**/*.yml")).union(
                 set((root_path / Path(model_path)).resolve().glob("**/*.yaml"))
@@ -143,7 +150,9 @@ def process_yaml_files_except_dbt_project(
                         file_name_to_yaml_results[str(yml_file)] = yml_refactor_result
 
                 except Exception as e:
-                    error_console.print(f"Error processing YAML at path {yml_file}: {e.__class__.__name__}: {e}", style="bold red")
+                    error_console.print(
+                        f"Error processing YAML at path {yml_file}: {e.__class__.__name__}: {e}", style="bold red"
+                    )
                     exit(1)
 
     for changesets in ordered_changesets:
@@ -153,7 +162,12 @@ def process_yaml_files_except_dbt_project(
 
 
 def process_dbt_project_yml(
-    root_path: Path, schema_specs: SchemaSpecs, dry_run: bool = False, exclude_dbt_project_keys: bool = False, behavior_change: bool = False, all: bool = False
+    root_path: Path,
+    schema_specs: SchemaSpecs,
+    dry_run: bool = False,
+    exclude_dbt_project_keys: bool = False,
+    behavior_change: bool = False,
+    all: bool = False,
 ) -> YMLRefactorResult:
     """Process dbt_project.yml"""
     if not (root_path / "dbt_project.yml").exists():
@@ -177,9 +191,7 @@ def process_dbt_project_yml(
         refactors=[],
     )
 
-    behavior_change_rules = [
-        (changeset_dbt_project_flip_behavior_flags, None)
-    ]
+    behavior_change_rules = [(changeset_dbt_project_flip_behavior_flags, None)]
     safe_change_rules = [
         (changeset_remove_duplicate_keys, None),
         (changeset_dbt_project_flip_test_arguments_behavior_flag, None),
@@ -238,9 +250,7 @@ def process_sql_files(
     """
     results: List[SQLRefactorResult] = []
 
-    behavior_change_rules = [
-        (rename_sql_file_names_with_spaces, True, False)
-    ]
+    behavior_change_rules = [(rename_sql_file_names_with_spaces, True, False)]
     safe_change_rules = [
         (remove_unmatched_endings, False, False),
         (refactor_custom_configs_to_meta_sql, False, True),
@@ -301,6 +311,7 @@ def process_sql_files(
 
     return results
 
+
 def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
     """Removes duplicate keys in the YAML files, keeping the first occurence only
     The drawback of keeping the first occurence is that we need to use PyYAML and then lose all the comments that were in the file
@@ -313,8 +324,7 @@ def changeset_remove_duplicate_keys(yml_str: str) -> YMLRuleRefactorResult:
             refactored = True
             deprecation_refactors.append(
                 DbtDeprecationRefactor(
-                    log=f"Found duplicate keys: line {p.line} - {p.desc}",
-                    deprecation="DuplicateYAMLKeysDeprecation"
+                    log=f"Found duplicate keys: line {p.line} - {p.desc}", deprecation="DuplicateYAMLKeysDeprecation"
                 )
             )
 
@@ -479,7 +489,9 @@ def changeset_all_sql_yml_files(  # noqa: PLR0913
     if not semantic_layer:
         for dbt_root_path in dbt_roots_paths:
             dbt_project_yml_results.append(
-                process_dbt_project_yml(Path(dbt_root_path), schema_specs, dry_run, exclude_dbt_project_keys, behavior_change, all)
+                process_dbt_project_yml(
+                    Path(dbt_root_path), schema_specs, dry_run, exclude_dbt_project_keys, behavior_change, all
+                )
             )
 
     # Process YAML files

@@ -23,7 +23,7 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
     pretty_exceptions_enable=False,
-    context_settings={"help_option_names": ["-h", "--help"]}
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 
 current_dir = Path.cwd()
@@ -61,9 +61,7 @@ def refactor_yml(  # noqa: PLR0913
     all: Annotated[
         bool, typer.Option("--all", help="Run all fixes, including those that may require a behavior change")
     ] = False,
-    semantic_layer: Annotated[
-        bool, typer.Option("--semantic-layer", help="Run fixes to semantic layer")
-    ] = False,
+    semantic_layer: Annotated[bool, typer.Option("--semantic-layer", help="Run fixes to semantic layer")] = False,
 ):
     if semantic_layer and include_packages:
         raise typer.BadParameter("--include-packages is not supported with --semantic-layer")
@@ -71,7 +69,15 @@ def refactor_yml(  # noqa: PLR0913
     schema_specs = SchemaSpecs(json_schema_version)
 
     changesets = changeset_all_sql_yml_files(
-        path, schema_specs, dry_run, exclude_dbt_project_keys, select, include_packages, behavior_change, all, semantic_layer,
+        path,
+        schema_specs,
+        dry_run,
+        exclude_dbt_project_keys,
+        select,
+        include_packages,
+        behavior_change,
+        all,
+        semantic_layer,
     )
     yaml_results, sql_results = changesets
     if dry_run:
@@ -85,7 +91,7 @@ def refactor_yml(  # noqa: PLR0913
                 changeset.print_to_console(json_output)
     else:
         apply_changesets(yaml_results, sql_results, json_output)
-    
+
     if json_output:
         print(json.dumps({"mode": "complete"}))  # noqa: T201
 
@@ -117,7 +123,15 @@ def jobs(  # noqa: PLR0913
     ] = False,
 ):
     update_jobs(
-        account_id, api_key, base_url, disable_ssl_verification, project_ids, environment_ids, dry_run, json_output, behavior_change
+        account_id,
+        api_key,
+        base_url,
+        disable_ssl_verification,
+        project_ids,
+        environment_ids,
+        dry_run,
+        json_output,
+        behavior_change,
     )
 
 

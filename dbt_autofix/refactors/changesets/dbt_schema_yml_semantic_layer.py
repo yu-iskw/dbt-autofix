@@ -5,49 +5,51 @@ from dbt_autofix.refactors.yml import DbtYAML, dict_to_yaml_str
 from dbt_autofix.semantic_definitions import SemanticDefinitions
 
 
-def changeset_merge_simple_metrics_with_models(yml_str: str, semantic_definitions: SemanticDefinitions) -> YMLRuleRefactorResult:
+def changeset_merge_simple_metrics_with_models(
+    yml_str: str, semantic_definitions: SemanticDefinitions
+) -> YMLRuleRefactorResult:
     return merge_metrics_with_models(yml_str, semantic_definitions, merge_simple_metrics_with_model)
 
 
-def changeset_merge_complex_metrics_with_models(yml_str: str, semantic_definitions: SemanticDefinitions) -> YMLRuleRefactorResult:
+def changeset_merge_complex_metrics_with_models(
+    yml_str: str, semantic_definitions: SemanticDefinitions
+) -> YMLRuleRefactorResult:
     return merge_metrics_with_models(yml_str, semantic_definitions, merge_complex_metrics_with_model)
 
 
-def merge_metrics_with_models(yml_str: str, semantic_definitions: SemanticDefinitions, merge_fn: Callable) -> YMLRuleRefactorResult:
+def merge_metrics_with_models(
+    yml_str: str, semantic_definitions: SemanticDefinitions, merge_fn: Callable
+) -> YMLRuleRefactorResult:
     refactored = False
     deprecation_refactors: List[DbtDeprecationRefactor] = []
     yml_dict = DbtYAML().load(yml_str) or {}
 
     for i, node in enumerate(yml_dict.get("models") or []):
-        processed_node, node_refactored, node_refactor_logs = merge_fn(
-            node,
-            semantic_definitions
-        )
-        
+        processed_node, node_refactored, node_refactor_logs = merge_fn(node, semantic_definitions)
+
         if node_refactored:
             refactored = True
             yml_dict["models"][i] = processed_node
             for log in node_refactor_logs:
-                deprecation_refactors.append(
-                    DbtDeprecationRefactor(
-                        log=log,
-                        deprecation=None
-                    )
-                )
+                deprecation_refactors.append(DbtDeprecationRefactor(log=log, deprecation=None))
 
     return YMLRuleRefactorResult(
         rule_name="merge_metrics_with_model_metrics",
         refactored=refactored,
         refactored_yaml=dict_to_yaml_str(yml_dict) if refactored else yml_str,
         original_yaml=yml_str,
-        deprecation_refactors=deprecation_refactors
+        deprecation_refactors=deprecation_refactors,
     )
 
 
-def merge_simple_metrics_with_model(node: Dict[str, Any], semantic_definitions: SemanticDefinitions) -> Tuple[Dict[str, Any], bool, List[str]]:
+def merge_simple_metrics_with_model(
+    node: Dict[str, Any], semantic_definitions: SemanticDefinitions
+) -> Tuple[Dict[str, Any], bool, List[str]]:
     refactored = False
     refactor_logs: List[str] = []
-    simple_metrics_on_model = {metric["name"]: metric for metric in node.get("metrics", []) if metric["type"] == "simple"}
+    simple_metrics_on_model = {
+        metric["name"]: metric for metric in node.get("metrics", []) if metric["type"] == "simple"
+    }
 
     # For each top-level metric, determine whether it can be merged with the model depending on its linked measures
     for metric_name, metric in semantic_definitions.metrics.items():
@@ -91,15 +93,21 @@ def merge_simple_metrics_with_model(node: Dict[str, Any], semantic_definitions: 
                 # Mark metric as refactored and merged
                 semantic_definitions.mark_metric_as_merged(metric_name)
                 refactored = True
-                refactor_logs.append(f"Merged simple metric '{metric_name}' with simple metric '{metric_name}' on model '{node['name']}'.")
-    
+                refactor_logs.append(
+                    f"Merged simple metric '{metric_name}' with simple metric '{metric_name}' on model '{node['name']}'."
+                )
+
     return node, refactored, refactor_logs
 
 
-def merge_complex_metrics_with_model(node: Dict[str, Any], semantic_definitions: SemanticDefinitions) -> Tuple[Dict[str, Any], bool, List[str]]:
+def merge_complex_metrics_with_model(
+    node: Dict[str, Any], semantic_definitions: SemanticDefinitions
+) -> Tuple[Dict[str, Any], bool, List[str]]:
     refactored = False
     refactor_logs: List[str] = []
-    simple_metrics_on_model = {metric["name"]: metric for metric in node.get("metrics", []) if metric["type"] == "simple"}
+    simple_metrics_on_model = {
+        metric["name"]: metric for metric in node.get("metrics", []) if metric["type"] == "simple"
+    }
 
     # For each top-level metric, determine whether it can be merged with the model depending on its linked measures
     for metric_name, metric in semantic_definitions.metrics.items():
@@ -134,7 +142,7 @@ def merge_complex_metrics_with_model(node: Dict[str, Any], semantic_definitions:
                 numerator_name = numerator["name"]
             else:
                 numerator_name = numerator
-            
+
             denominator = metric.get("type_params", {}).get("denominator")
             if isinstance(denominator, dict):
                 denominator_name = denominator["name"]
@@ -150,18 +158,20 @@ def merge_complex_metrics_with_model(node: Dict[str, Any], semantic_definitions:
                 semantic_definitions.mark_metric_as_merged(metric_name)
                 refactored = True
                 refactor_logs.append(f"Added ratio metric '{metric_name}' to model '{node['name']}'.")
-        
+
         elif metric["type"] == "cumulative":
             measure = metric.get("type_params", {}).get("measure")
             raw_measure_name, measure_name = get_name_from_measure(measure)
 
             add_cumulative_metric_to_model = False
             if measure_name in simple_metrics_on_model:
-                add_cumulative_metric_to_model = True                
+                add_cumulative_metric_to_model = True
             elif raw_measure_name and raw_measure_name in simple_metrics_on_model:
                 add_cumulative_metric_to_model = True
                 # Create hidden simple metric since only raw measure name is present
-                new_simple_metric = create_hidden_simple_metric_from(simple_metrics_on_model[raw_measure_name], measure_name, fill_nulls_with, join_to_timespine)
+                new_simple_metric = create_hidden_simple_metric_from(
+                    simple_metrics_on_model[raw_measure_name], measure_name, fill_nulls_with, join_to_timespine
+                )
                 node["metrics"].append(new_simple_metric)
                 refactored = True
                 refactor_logs.append(f"Added hidden simple metric '{measure_name}' to model '{node['name']}'.")
@@ -171,16 +181,26 @@ def merge_complex_metrics_with_model(node: Dict[str, Any], semantic_definitions:
                 semantic_definitions.mark_metric_as_merged(metric_name)
                 refactored = True
                 refactor_logs.append(f"Added cumulative metric '{metric_name}' to model '{node['name']}'.")
-        
+
         elif metric["type"] == "conversion":
             base_measure = metric.get("type_params", {}).get("conversion_type_params", {}).get("base_measure")
-            base_measure_fill_nulls_with = base_measure.get("fill_nulls_with") if isinstance(base_measure, dict) else None
-            base_measure_join_to_timespine = base_measure.get("join_to_timespine") if isinstance(base_measure, dict) else None
+            base_measure_fill_nulls_with = (
+                base_measure.get("fill_nulls_with") if isinstance(base_measure, dict) else None
+            )
+            base_measure_join_to_timespine = (
+                base_measure.get("join_to_timespine") if isinstance(base_measure, dict) else None
+            )
             raw_base_measure_name, base_measure_name = get_name_from_measure(base_measure)
-            
-            conversion_measure = metric.get("type_params", {}).get("conversion_type_params", {}).get("conversion_measure")
-            conversion_measure_fill_nulls_with = conversion_measure.get("fill_nulls_with") if isinstance(conversion_measure, dict) else None
-            conversion_measure_join_to_timespine = conversion_measure.get("join_to_timespine") if isinstance(conversion_measure, dict) else None
+
+            conversion_measure = (
+                metric.get("type_params", {}).get("conversion_type_params", {}).get("conversion_measure")
+            )
+            conversion_measure_fill_nulls_with = (
+                conversion_measure.get("fill_nulls_with") if isinstance(conversion_measure, dict) else None
+            )
+            conversion_measure_join_to_timespine = (
+                conversion_measure.get("join_to_timespine") if isinstance(conversion_measure, dict) else None
+            )
             raw_conversion_measure_name, conversion_measure_name = get_name_from_measure(conversion_measure)
 
             add_conversion_metric_to_model = False
@@ -189,30 +209,49 @@ def merge_complex_metrics_with_model(node: Dict[str, Any], semantic_definitions:
             if base_measure_name in simple_metrics_on_model and conversion_measure_name in simple_metrics_on_model:
                 add_conversion_metric_to_model = True
             # Both base and conversion measures need simple metrics created
-            elif raw_base_measure_name in simple_metrics_on_model and raw_conversion_measure_name in simple_metrics_on_model:
+            elif (
+                raw_base_measure_name in simple_metrics_on_model
+                and raw_conversion_measure_name in simple_metrics_on_model
+            ):
                 add_conversion_metric_to_model = True
                 add_hidden_base_metric_to_model = True
                 add_hidden_conversion_metric_to_model = True
             # Only conversion measure needs a simple metric created
-            elif raw_conversion_measure_name in simple_metrics_on_model and base_measure_name in simple_metrics_on_model:
+            elif (
+                raw_conversion_measure_name in simple_metrics_on_model and base_measure_name in simple_metrics_on_model
+            ):
                 add_conversion_metric_to_model = True
                 add_hidden_conversion_metric_to_model = True
             # Only base measure needs a simple metric created
-            elif raw_base_measure_name in simple_metrics_on_model and conversion_measure_name in simple_metrics_on_model:
+            elif (
+                raw_base_measure_name in simple_metrics_on_model and conversion_measure_name in simple_metrics_on_model
+            ):
                 add_conversion_metric_to_model = True
                 add_hidden_base_metric_to_model = True
 
             if add_hidden_base_metric_to_model:
-                new_simple_metric = create_hidden_simple_metric_from(simple_metrics_on_model[raw_base_measure_name], base_measure_name, base_measure_fill_nulls_with, base_measure_join_to_timespine)
+                new_simple_metric = create_hidden_simple_metric_from(
+                    simple_metrics_on_model[raw_base_measure_name],
+                    base_measure_name,
+                    base_measure_fill_nulls_with,
+                    base_measure_join_to_timespine,
+                )
                 node["metrics"].append(new_simple_metric)
                 refactored = True
                 refactor_logs.append(f"Added hidden simple metric '{base_measure_name}' to model '{node['name']}'.")
 
             if add_hidden_conversion_metric_to_model:
-                new_simple_metric = create_hidden_simple_metric_from(simple_metrics_on_model[raw_conversion_measure_name], conversion_measure_name, conversion_measure_fill_nulls_with, conversion_measure_join_to_timespine)
+                new_simple_metric = create_hidden_simple_metric_from(
+                    simple_metrics_on_model[raw_conversion_measure_name],
+                    conversion_measure_name,
+                    conversion_measure_fill_nulls_with,
+                    conversion_measure_join_to_timespine,
+                )
                 node["metrics"].append(new_simple_metric)
                 refactored = True
-                refactor_logs.append(f"Added hidden simple metric '{conversion_measure_name}' to model '{node['name']}'.")
+                refactor_logs.append(
+                    f"Added hidden simple metric '{conversion_measure_name}' to model '{node['name']}'."
+                )
 
             if add_conversion_metric_to_model:
                 node["metrics"].append(migrate_conversion_metric(metric, base_measure_name, conversion_measure_name))
@@ -221,6 +260,7 @@ def merge_complex_metrics_with_model(node: Dict[str, Any], semantic_definitions:
                 refactor_logs.append(f"Added conversion metric '{metric_name}' to model '{node['name']}'.")
 
     return node, refactored, refactor_logs
+
 
 def get_name_from_measure(measure: Union[str, Dict[str, Any]]) -> Tuple[str, str]:
     raw_measure_name, measure_name = None, None
@@ -237,10 +277,16 @@ def get_name_from_measure(measure: Union[str, Dict[str, Any]]) -> Tuple[str, str
     else:
         raw_measure_name = measure
         measure_name = measure
-    
+
     return raw_measure_name, measure_name
 
-def create_hidden_simple_metric_from(other_simple_metric: Dict[str, Any], name: str, fill_nulls_with: Optional[str] = None, join_to_timespine: Optional[bool] = None) -> Dict[str, Any]:
+
+def create_hidden_simple_metric_from(
+    other_simple_metric: Dict[str, Any],
+    name: str,
+    fill_nulls_with: Optional[str] = None,
+    join_to_timespine: Optional[bool] = None,
+) -> Dict[str, Any]:
     new_metric = other_simple_metric.copy()
     new_metric["name"] = name
     new_metric["hidden"] = True
@@ -251,6 +297,7 @@ def create_hidden_simple_metric_from(other_simple_metric: Dict[str, Any], name: 
 
     return new_metric
 
+
 def migrate_cumulative_metric(metric: Dict[str, Any], measure_name: str) -> Dict[str, Any]:
     # Remove type_params from top-level
     type_params = metric.pop("type_params", {})
@@ -259,7 +306,7 @@ def migrate_cumulative_metric(metric: Dict[str, Any], measure_name: str) -> Dict
     # Rename "measure" to "input_metric"
     if "measure" in metric:
         metric["input_metric"] = metric.pop("measure")
-    
+
     # Remove fill_nulls_with and join_to_timespine from input_metric if they exist
     if isinstance(metric["input_metric"], dict):
         metric["input_metric"].pop("fill_nulls_with", None)
@@ -273,7 +320,10 @@ def migrate_cumulative_metric(metric: Dict[str, Any], measure_name: str) -> Dict
 
     return metric
 
-def migrate_conversion_metric(metric: Dict[str, Any], base_measure_name: str, conversion_measure_name: str) -> Dict[str, Any]:
+
+def migrate_conversion_metric(
+    metric: Dict[str, Any], base_measure_name: str, conversion_measure_name: str
+) -> Dict[str, Any]:
     conversion_type_params = metric.pop("type_params", {}).pop("conversion_type_params", {})
     metric.update(conversion_type_params)
 
@@ -292,7 +342,7 @@ def migrate_conversion_metric(metric: Dict[str, Any], base_measure_name: str, co
         if isinstance(metric["conversion_metric"], dict):
             metric["conversion_metric"].pop("fill_nulls_with", None)
             metric["conversion_metric"].pop("join_to_timespine", None)
-    
+
     # Ensure conversion metric is pointig to correct metric inputs
     if isinstance(metric["base_metric"], dict):
         metric["base_metric"]["name"] = base_measure_name
@@ -303,11 +353,13 @@ def migrate_conversion_metric(metric: Dict[str, Any], base_measure_name: str, co
         metric["conversion_metric"]["name"] = conversion_measure_name
     else:
         metric["conversion_metric"] = conversion_measure_name
-    
+
     return metric
 
 
-def changeset_merge_semantic_models_with_models(yml_str: str, semantic_definitions: SemanticDefinitions) -> YMLRuleRefactorResult:
+def changeset_merge_semantic_models_with_models(
+    yml_str: str, semantic_definitions: SemanticDefinitions
+) -> YMLRuleRefactorResult:
     refactored = False
     deprecation_refactors: List[DbtDeprecationRefactor] = []
     yml_dict = DbtYAML().load(yml_str) or {}
@@ -315,20 +367,14 @@ def changeset_merge_semantic_models_with_models(yml_str: str, semantic_definitio
     # Merge semantic models with existing models in yml
     for i, node in enumerate(yml_dict.get("models") or []):
         processed_node, node_refactored, node_refactor_logs = merge_semantic_models_with_model(
-            node,
-            semantic_definitions
+            node, semantic_definitions
         )
-        
+
         if node_refactored:
             refactored = True
             yml_dict["models"][i] = processed_node
             for log in node_refactor_logs:
-                deprecation_refactors.append(
-                    DbtDeprecationRefactor(
-                        log=log,
-                        deprecation=None
-                    )
-                )
+                deprecation_refactors.append(DbtDeprecationRefactor(log=log, deprecation=None))
 
     # Create new model entries for semantic models that don't have a corresponding model entry in any .yml file
     # and merge semantic models with them
@@ -343,27 +389,21 @@ def changeset_merge_semantic_models_with_models(yml_str: str, semantic_definitio
                 "name": model_key[0],
             }
 
-            processed_new_model_node, new_model_node_refactored, new_model_node_refactor_logs = merge_semantic_models_with_model(
-                new_model_node,
-                semantic_definitions
+            processed_new_model_node, new_model_node_refactored, new_model_node_refactor_logs = (
+                merge_semantic_models_with_model(new_model_node, semantic_definitions)
             )
             if new_model_node_refactored:
                 refactored = True
                 yml_dict["models"].append(processed_new_model_node)
                 for log in new_model_node_refactor_logs:
-                    deprecation_refactors.append(
-                        DbtDeprecationRefactor(
-                            log=log,
-                            deprecation=None
-                        )
-                    )
+                    deprecation_refactors.append(DbtDeprecationRefactor(log=log, deprecation=None))
 
     return YMLRuleRefactorResult(
         rule_name="restructure_owner_properties",
         refactored=refactored,
         refactored_yaml=dict_to_yaml_str(yml_dict) if refactored else yml_str,
         original_yaml=yml_str,
-        deprecation_refactors=deprecation_refactors
+        deprecation_refactors=deprecation_refactors,
     )
 
 
@@ -397,11 +437,11 @@ def merge_semantic_models_with_model(
                 else:
                     node["description"] = semantic_model["description"]
                     node_logs.append(f"Set model 'description' to semantic model 'description'.")
-            
+
             if agg_time_dimension := semantic_model.get("defaults", {}).get("agg_time_dimension"):
                 node["agg_time_dimension"] = agg_time_dimension
                 node_logs.append(f"Set model 'agg_time_dimension' to semantic model 'agg_time_dimension'.")
-            
+
             # Propagate entities to model columns or derived_semantics
             node_logs.extend(merge_entities_with_model_columns(node, semantic_model.get("entities", [])))
 
@@ -416,11 +456,10 @@ def merge_semantic_models_with_model(
             semantic_definitions.mark_semantic_model_as_merged(semantic_model["name"])
             for log in node_logs:
                 refactor_log += f"\n\t* {log}"
-            refactor_logs.append(
-                refactor_log
-            )
-        
+            refactor_logs.append(refactor_log)
+
     return node, refactored, refactor_logs
+
 
 def merge_entities_with_model_columns(node: Dict[str, Any], entities: List[Dict[str, Any]]) -> List[str]:
     logs: List[str] = []
@@ -431,48 +470,37 @@ def merge_entities_with_model_columns(node: Dict[str, Any], entities: List[Dict[
 
         # Add entity to column if column already exists
         if entity_col_name in node_columns:
-            node_columns[entity_col_name]["entity"] = {
-                "type": entity["type"]
-            }
+            node_columns[entity_col_name]["entity"] = {"type": entity["type"]}
             if entity.get("name") != entity_col_name:
                 node_columns[entity_col_name]["entity"]["name"] = entity["name"]
             logs.append(f"Added '{entity['type']}' entity to column '{entity_col_name}'.")
         # If column doesn't exist, add a new one with new entity if no special characters in expr
         elif not any(char in entity_col_name for char in (" ", "|", "(")):
             if node.get("columns"):
-                node["columns"].append({
-                    "name": entity_col_name,
-                    "entity": {
-                        "type": entity["type"]
-                    }
-                })
+                node["columns"].append({"name": entity_col_name, "entity": {"type": entity["type"]}})
             else:
-                node["columns"] = [{
-                    "name": entity_col_name,
-                    "entity": {
-                        "type": entity["type"]
-                    }
-                }]
+                node["columns"] = [{"name": entity_col_name, "entity": {"type": entity["type"]}}]
             logs.append(f"Added new column '{entity_col_name}' with '{entity['type']}' entity.")
         # Create entity as derived semantic entity
         else:
             if "derived_semantics" not in node:
-                node["derived_semantics"] = {
-                    "entities": []
-                }
-            
+                node["derived_semantics"] = {"entities": []}
+
             if "entities" not in node["derived_semantics"]:
                 node["derived_semantics"]["entities"] = []
-            
-            node["derived_semantics"]["entities"].append({
-                "name": entity_col_name,
-                "type": entity["type"],
-            })
+
+            node["derived_semantics"]["entities"].append(
+                {
+                    "name": entity_col_name,
+                    "type": entity["type"],
+                }
+            )
             if entity.get("expr"):
                 node["derived_semantics"]["entities"][-1]["expr"] = entity["expr"]
             logs.append(f"Added 'derived_semantics' to model with '{entity['type']}' entity.")
-    
+
     return logs
+
 
 def merge_dimensions_with_model_columns(node: Dict[str, Any], dimensions: List[Dict[str, Any]]) -> List[str]:
     logs: List[str] = []
@@ -484,9 +512,7 @@ def merge_dimensions_with_model_columns(node: Dict[str, Any], dimensions: List[D
 
         # Add dimension to column if column already exists
         if dimension_col_name in node_columns:
-            node_columns[dimension_col_name]["dimension"] = {
-                "type": dimension["type"]
-            }
+            node_columns[dimension_col_name]["dimension"] = {"type": dimension["type"]}
             # Add time granularity to top-level column if it was defined on the dimension
             if dimension_time_granularity:
                 node_columns[dimension_col_name]["granularity"] = dimension_time_granularity
@@ -494,19 +520,9 @@ def merge_dimensions_with_model_columns(node: Dict[str, Any], dimensions: List[D
         # If column doesn't exist, add a new one with new dimension if no special characters in expr
         elif not any(char in dimension_col_name for char in (" ", "|", "(")):
             if node.get("columns"):
-                node["columns"].append({
-                    "name": dimension_col_name,
-                    "dimension": {
-                        "type": dimension["type"]
-                    }
-                })
+                node["columns"].append({"name": dimension_col_name, "dimension": {"type": dimension["type"]}})
             else:
-                node["columns"] = [{
-                    "name": dimension_col_name,
-                    "dimension": {
-                        "type": dimension["type"]
-                    }
-                }]
+                node["columns"] = [{"name": dimension_col_name, "dimension": {"type": dimension["type"]}}]
             # Add time granularity to top-level column if it was defined on the dimension
             if dimension_time_granularity:
                 node["columns"][-1]["granularity"] = dimension_time_granularity
@@ -514,20 +530,20 @@ def merge_dimensions_with_model_columns(node: Dict[str, Any], dimensions: List[D
         # Create entity as derived semantic entity
         else:
             if "derived_semantics" not in node:
-                node["derived_semantics"] = {
-                    "entities": []
-                }
+                node["derived_semantics"] = {"entities": []}
             if "dimensions" not in node["derived_semantics"]:
                 node["derived_semantics"]["dimensions"] = []
-            
-            node["derived_semantics"]["dimensions"].append({
-                "name": dimension_col_name,
-                "type": dimension["type"],
-            })
+
+            node["derived_semantics"]["dimensions"].append(
+                {
+                    "name": dimension_col_name,
+                    "type": dimension["type"],
+                }
+            )
             if dimension_time_granularity:
                 node["derived_semantics"]["dimensions"][-1]["time_granularity"] = dimension_time_granularity
             logs.append(f"Added 'derived_semantics' to model with '{dimension['type']}' entity.")
-    
+
     return logs
 
 
@@ -539,18 +555,14 @@ def merge_measures_with_model_metrics(node: Dict[str, Any], measures: List[Dict[
         metric_name = measure["name"]
 
         # Build metric to add to model / update existing metric on model
-        metric = {
-            "name": metric_name,
-            "type": "simple",
-            "label": measure.get("label") or metric_name
-        }
+        metric = {"name": metric_name, "type": "simple", "label": measure.get("label") or metric_name}
         create_metric = measure.pop("create_metric", False)
         if not create_metric:
             metric["hidden"] = True
 
         for key, value in measure.items():
             metric[key] = value
-        
+
         # Renamed non_additive_dimension keys
         if metric.get("non_additive_dimension"):
             # window_choice -> window_agg
@@ -565,16 +577,23 @@ def merge_measures_with_model_metrics(node: Dict[str, Any], measures: List[Dict[
         # Add measure to metric if metric already exists, or create new metric
         if metric_name in node_metrics:
             node_metrics[metric_name].update(metric)
-            logs.append(f"Updated existing metric '{metric_name}' with measure '{metric_name}' from semantic model '{node['name']}'.")
+            logs.append(
+                f"Updated existing metric '{metric_name}' with measure '{metric_name}' from semantic model '{node['name']}'."
+            )
         else:
             if "metrics" not in node:
                 node["metrics"] = []
             node["metrics"].append(metric)
-            logs.append(f"Added new simple metric '{metric_name}' from measure '{metric_name}' on semantic model '{node['name']}'.")
-    
+            logs.append(
+                f"Added new simple metric '{metric_name}' from measure '{metric_name}' on semantic model '{node['name']}'."
+            )
+
     return logs
 
-def changeset_delete_top_level_semantic_models(yml_str: str, semantic_definitions: SemanticDefinitions) -> YMLRuleRefactorResult:
+
+def changeset_delete_top_level_semantic_models(
+    yml_str: str, semantic_definitions: SemanticDefinitions
+) -> YMLRuleRefactorResult:
     refactored = False
     deprecation_refactors: List[DbtDeprecationRefactor] = []
     yml_dict = DbtYAML().load(yml_str) or {}
@@ -587,13 +606,12 @@ def changeset_delete_top_level_semantic_models(yml_str: str, semantic_definition
             refactored = True
             deprecation_refactors.append(
                 DbtDeprecationRefactor(
-                    log=f"Deleted top-level semantic model '{semantic_model['name']}'.",
-                    deprecation=None
+                    log=f"Deleted top-level semantic model '{semantic_model['name']}'.", deprecation=None
                 )
             )
         else:
             new_semantic_models.append(semantic_model)
-    
+
     if not new_semantic_models:
         yml_dict.pop("semantic_models", None)
     else:
@@ -604,11 +622,13 @@ def changeset_delete_top_level_semantic_models(yml_str: str, semantic_definition
         refactored=refactored,
         refactored_yaml=dict_to_yaml_str(yml_dict, write_empty=True) if refactored else yml_str,
         original_yaml=yml_str,
-        deprecation_refactors=deprecation_refactors
+        deprecation_refactors=deprecation_refactors,
     )
 
 
-def changeset_migrate_or_delete_top_level_metrics(yml_str: str, semantic_definitions: SemanticDefinitions) -> YMLRuleRefactorResult:
+def changeset_migrate_or_delete_top_level_metrics(
+    yml_str: str, semantic_definitions: SemanticDefinitions
+) -> YMLRuleRefactorResult:
     refactored = False
     deprecation_refactors: List[DbtDeprecationRefactor] = []
     yml_dict = DbtYAML().load(yml_str) or {}
@@ -621,10 +641,7 @@ def changeset_migrate_or_delete_top_level_metrics(yml_str: str, semantic_definit
         if metric["name"] in semantic_definitions.merged_metrics:
             refactored = True
             deprecation_refactors.append(
-                DbtDeprecationRefactor(
-                    log=f"Deleted top-level metric '{metric['name']}'.",
-                    deprecation=None
-                )
+                DbtDeprecationRefactor(log=f"Deleted top-level metric '{metric['name']}'.", deprecation=None)
             )
         else:
             # Transform metric to be compatible with new syntax, but leave metric at top-level
@@ -650,7 +667,7 @@ def changeset_migrate_or_delete_top_level_metrics(yml_str: str, semantic_definit
             deprecation_refactors.append(
                 DbtDeprecationRefactor(
                     log=f"Updated top-level metric '{metric['name']}' to be compatible with new syntax, but left at top-level.",
-                    deprecation=None
+                    deprecation=None,
                 )
             )
 
@@ -664,5 +681,5 @@ def changeset_migrate_or_delete_top_level_metrics(yml_str: str, semantic_definit
         refactored=refactored,
         refactored_yaml=dict_to_yaml_str(yml_dict, write_empty=True) if refactored else yml_str,
         original_yaml=yml_str,
-        deprecation_refactors=deprecation_refactors
+        deprecation_refactors=deprecation_refactors,
     )
