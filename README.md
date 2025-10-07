@@ -105,6 +105,19 @@ Running with `--behavior-changes` will run the _subset_ of fixes that would reso
 
 ### Using `AGENTS.md`
 
-[`AGENTS.md`](./AGENTS.md) is provided as a reference and starting place for those interested in using AI agents to assist them with migration work that dbt-autofix is not capable of resolving.
+[`AGENTS.md`](./AGENTS.md) is provided as a reference and starting place for those interested in using AI agents in Cursor, Copilot Chat, and Claude Code to try resolving remaining errors after running dbt-autofix. 
 
-The 
+**To use AGENTS.md:**
+1. Download AGENTS.md and the /manual_fixes/ directory (you can remove these files after using the agentic autofix workflow)
+2. Add AGENTS.md as context to the chat or Claude Code
+3. Be very specific in your prompt to provide the proper guardrails and avoid AI hallucinations
+
+**Sample prompt:**
+
+Please make my dbt project compatible with Fusion by strictly following the instructions in AGENTS.md. Please read AGENTS.md and dependent resources in full before you start, and take time planning and thinking through steps.
+
+**Share your manual fixes!**
+
+Have you had to make manual adjustments to get your dbt project working with Fusion? We’d love for you to contribute them back to the community through this agentic workflow!
+
+The `/manual_fixes/` folder is a collection of real examples where users have solved compatibility issues manually, and we would love your contribution to it. Your contribution helps improve autofix for everyone and can prevent others from hitting the same issue. 
