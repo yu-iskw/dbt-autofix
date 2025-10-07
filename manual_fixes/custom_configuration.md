@@ -2,9 +2,15 @@
 
 ## PROBLEM
 
-Any config key that's not a part of the new authoring layer will cause Fusion to fail to parse.
+Any config key that's not a part of the new authoring layer will cause Fusion to fail to parse. This error will show up as "Ignored unexpected key" in the parse logs. Unexpected config key could fall into one of two categories:
+1. It's a misspelling of a supported config key (see misspelled_config_keys.md)
+2. It's a custom config key (addressed in this file)
 
-Unsupported dbt configs need to be moved into `meta:`, or the Fusion will fail to parse the user project.
+
+## SOLUTION
+1. First check whether it's a misspelled config key. Follow misspelled_config_keys.md
+2. If it's not a misspelled config key, move the custom config key under a `meta:` block. If the unsupported config key is in `dbt_projects.yml` it needs to be moved under a `+meta:` block. 
+
 
 However, often a user project depends on these keys existing, especially in the case of:
 - custom materializations
@@ -41,11 +47,7 @@ For example, it's easy enough to move these cold storage keys into `meta:` like 
 }}
 ```
 
-
-## SOLUTION
-
-In these instances, not only do the custom configs need to be moved within `meta:`, but also any macro, or materialization that references those configs in jinja, need to be updated.
-
+In these instances, not only do the unsupported config keys need to be moved under a new `meta:` key, but also any macro, or materialization that references those configs in jinja, need to be updated.
 for example:
 
 this code
@@ -67,25 +69,6 @@ When you have many files (50+) with the same custom config pattern, use systemat
    - Any custom materialization configs
    - Custom incremental strategy configs
 
-
-## CHALLENGES
-
-Often upgrading packages isn't as simple as increasing the version number.
-
-There's often changes to the project that are needed. To learn more about required changes check the release notes for the package on GitHub. The url format for package release notes is
-```
-https://github.com/{package_owner}/{package_name}/releases
-```
-
-For the the latest Fusion compatible releases of Fivetran packages, the source (`_source`) packages have deprecated and rolled into the main packages.
-
-The result is that there may be reference in `dbt_project.yml` to `*_source` package models, sources, and variables that have to be adjusted.
-
-If the user project has an explicit, non-transitive dependency on a Fivetran package whose name ends in `_source`, know that the dependency has to be changed to be the main package
-
-e.g. `fivetran/microsoft_ads_source` no longer exists as it's own package, it lives within `fivetran/microsoft_ads` now.
-
-After doing so, the models from the package not originating from the source package need to be explicitly disabled.
 
 ## CHALLENGES
 
@@ -117,3 +100,6 @@ Or set a local variable for cleaner code:
     -- do something
 {% endif %}
 ```
+
+## RESOURCES
+- https://docs.getdbt.com/reference/deprecations#customkeyinconfigdeprecation
