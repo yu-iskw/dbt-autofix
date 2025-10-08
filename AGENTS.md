@@ -21,7 +21,6 @@ Before you begin, please read and understand the resources section below. You sh
    **Special handling for common unsupported features:**
    - **Iceberg table errors**: These are not config errors but references to unsupported table types. See iceberg_tables.md for guidance.
    - **Python model errors**: Disable with `{{ config(enabled=false) }}` at the top of the file.
-   - **Custom materialization errors**: Disable with `{{ config(enabled=false) }}` at the top of the file.
    
    Run `dbtf parse` throughout this step to check for progress towards completing the migration. Once `dbtf parse` finishes successfully with 0 errors, proceed to step 5. 
 5. Run `dbtf compile` in the terminal and check if it finishes with 0 errors. If it finishes with 0 errors, you have successfully completed the migration. If there are unresolved errors, try step 4 again. Except this time, use `dbtf compile` to check for progress towards completing the migration.
@@ -36,7 +35,6 @@ When you encounter unsupported features in Fusion, follow this decision tree:
 ### For Unsupported Model Types (Python models, Iceberg tables, etc.)
 - **Python models**: Disable with `{{ config(enabled=false) }}` at the top of the file
 - **Iceberg tables**: Either disable the model OR move configuration to `+meta` block (see iceberg_tables.md)
-- **Custom materializations**: Disable with `{{ config(enabled=false) }}` at the top of the file
 - **Materialized views/Dynamic tables**: Disable with `{{ config(enabled=false) }}` at the top of the file
 
 ### For Unsupported Config Keys
