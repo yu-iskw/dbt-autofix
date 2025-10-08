@@ -19,7 +19,7 @@ Before you begin, please read and understand the resources section below. You sh
 4. For remaining errors, please ONLY use the resources below to attempt to resolve them. If you can't figure out a fix from the resources below, notify the user and break out of the flow. Attempt the fixes error by error, grouping similar errors based on the error code and message. You should also summarize which error you're working on in the chat to give users context. 
 
    **Special handling for common unsupported features:**
-   - **Iceberg table errors**: These are not config errors but references to unsupported table types. See iceberg_tables.md for guidance.
+   - **Iceberg table errors**: These are not config errors but references to unsupported table types. See [`iceberg_tables.md`](https://github.com/dbt-labs/dbt-autofix/blob/main/manual_fixes/manual_fixes/iceberg_tables.md) for guidance.
    - **Python model errors**: Disable with `{{ config(enabled=false) }}` at the top of the file.
    
    Run `dbtf parse` throughout this step to check for progress towards completing the migration. Once `dbtf parse` finishes successfully with 0 errors, proceed to step 5. 
