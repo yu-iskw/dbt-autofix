@@ -59,7 +59,11 @@ Unsupported features and blockers to Fusion compatibility. These pages outline t
 - https://docs.getdbt.com/docs/dbt-versions/core-upgrade/upgrading-to-fusion
 - If a model type is unsupported on Fusion (e.g. python models), you can disable it with this jinja macro `{{ config(enabled=false) }}` at the top of the file to disable the model.
 
-Config keys that Fusion should recognize: https://public.cdn.getdbt.com/fs/schemas/fs-schema-dbt-yaml-files-v2.0.0-beta.34.json
+Config keys that Fusion should recognize: 
+You can find the latest schema file using this template: `https://public.cdn.getdbt.com/fs/schemas/fs-schema-{RESOURCE}-{VERSION}.json`
+- `RESOURCE` is either `dbt-yaml-files` or `dbt-project`
+- `VERSION` is the fusion version (e.g. `v2.0.0-beta.34`, but `https://public.cdn.getdbt.com/fs/latest.json` gives you the latest version)
+- Example file: https://public.cdn.getdbt.com/fs/schemas/fs-schema-dbt-yaml-files-v2.0.0-beta.34.json
 
 ### dbt docs
 
