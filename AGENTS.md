@@ -49,7 +49,7 @@ When you encounter unsupported features in Fusion, follow this decision tree:
 ## Resources
 
 ### Common problems that cannot be addressed with deterministic dbt-autofix
-Use the files in /manual_fixes/ as the context for resolving these common problems:
+Use the files in the `manual_fixes/` directory as the context for resolving these common problems:
 - Each file outlines one problem and the solution you should use.
 - Only follow what's specified in the file. If you need more context, use the dbt docs section below as a resource.
 
