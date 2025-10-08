@@ -39,7 +39,7 @@ When you encounter unsupported features in Fusion, follow this decision tree:
 
 ### For Unsupported Config Keys
 - **Iceberg table configs**: Move to `+meta` block in dbt_project.yml (see iceberg_tables.md)
-- **Custom configs**: Move to `meta` block in model files (see custom_configuration.md)
+- **Custom configs**: Move to `meta` block in model files (see [`custom_configuration.md`](https://github.com/dbt-labs/dbt-autofix/blob/main/manual_fixes/custom_configuration.md))
 - **Deprecated configs**: Follow misspelled_config_keys.md guidance
 
 ### For Dependency Issues
