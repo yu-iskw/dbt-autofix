@@ -33,7 +33,7 @@ test = [
 ]
 
 [tool.pdm.build]
-includes = ["dbt_autofix"]
+includes = ["dbt_autofix", "pre_commit_hooks"]
 
 [tool.pdm.version]
 source = "scm"
