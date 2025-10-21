@@ -38,6 +38,10 @@ The following deprecations are covered by `dbt-autofix jobs`:
 
 ## Installation
 
+### In dbt Studio
+
+If you are using dbt Studio, no installation is needed. You can run `dbt-autofix` in the Studio command line just like you run other commands like `dbt build`.
+
 ### From PyPi
 
 #### With uv (recommended)
