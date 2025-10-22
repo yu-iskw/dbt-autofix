@@ -164,6 +164,25 @@ metrics:
         constant_properties:
           - base_property: dimension
             conversion_property: entity
+  - name: conversion_metric_across_two_models
+    description: The conversion metric description across two models and should be kept top level
+    type: conversion
+    label: Conversion Metric Across Two Models
+    type_params:
+      conversion_type_params:
+        entity: entity
+        calculation: calculation_type
+        base_measure:
+          name: revenue
+          join_to_timespine: true
+        conversion_measure:
+          name: average_tax_rate
+          fill_nulls_with: 8675309
+          filter: blah blah filter stuff here
+        window: window
+        constant_properties:
+          - base_property: dimension
+            conversion_property: entity
 
 saved_queries:
   - name: revenue_metrics
