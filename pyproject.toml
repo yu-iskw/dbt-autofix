@@ -33,6 +33,8 @@ test = [
 ]
 
 [tool.pdm.build]
+# Include pre_commit_hooks/ directory in distribution
+# To enable .pre-commit-hooks.yaml functionality
 includes = ["dbt_autofix", "pre_commit_hooks"]
 
 [tool.pdm.version]
