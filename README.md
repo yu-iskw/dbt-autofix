@@ -136,4 +136,7 @@ repos:
       - id: dbt-autofix-check # Check for deprecations without making changes
       # OR
       - id: dbt-autofix-fix # Automatically fix deprecations
+      # OR
+      - id: dbt-autofix-fix # Pass in multiple args
+        args: [--semantic-layer, --include-packages, --behavior-change]      
 ```

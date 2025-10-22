@@ -71,6 +71,21 @@ def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Run all fixes, including those that may require a behavior change",
     )
+    parser.add_argument(
+        "--include-packages",
+        action="store_true",
+        help="Include packages in the refactoring",
+    )
+    parser.add_argument(
+        "--semantic-layer",
+        action="store_true",
+        help="Run fixes to semantic layer deprecations",
+    )
+    parser.add_argument(
+        "--exclude-dbt-project-keys",
+        action="store_true",
+        help="Exclude dbt_project.yml keys from refactoring",
+    )
 
     return parser.parse_args(argv)
 
@@ -106,12 +121,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         path=Path.cwd(),
         schema_specs=schema_specs,
         dry_run=args.dry_run,
-        exclude_dbt_project_keys=False,
+        exclude_dbt_project_keys=args.exclude_dbt_project_keys,
         select=select,
-        include_packages=False,
+        include_packages=args.include_packages,
         behavior_change=args.behavior_change,
         all=args.all,
-        semantic_layer=False,
+        semantic_layer=args.semantic_layer,
     )
 
     yaml_results, sql_results = changesets
