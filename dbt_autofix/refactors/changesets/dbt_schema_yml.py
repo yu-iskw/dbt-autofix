@@ -13,6 +13,53 @@ from dbt_autofix.refactors.constants import COMMON_PROPERTY_MISSPELLINGS, COMMON
 
 NUM_SPACES_TO_REPLACE_TAB = 2
 
+
+def changeset_replace_fancy_quotes(yml_str: str) -> YMLRuleRefactorResult:
+    """Replace fancy/curly quotes (U+201C, U+201D) with standard ASCII double quotes.
+
+    Fancy quotes can break YAML parsing as they are not recognized as valid quote characters.
+    This changeset replaces:
+    - U+201C (") LEFT DOUBLE QUOTATION MARK with "
+    - U+201D (") RIGHT DOUBLE QUOTATION MARK with "
+
+    Args:
+        yml_str: The YAML string to process
+
+    Returns:
+        YMLRuleRefactorResult containing the refactored YAML and any changes made
+    """
+    deprecation_refactors: List[DbtDeprecationRefactor] = []
+
+    # Pattern to match fancy quotes: U+201C or U+201D
+    fancy_quotes_pattern = re.compile(r'[\u201c\u201d]')
+
+    # Find all matches with their positions to track line numbers
+    lines_with_quotes = set()
+    for match in fancy_quotes_pattern.finditer(yml_str):
+        line_num = yml_str[:match.start()].count('\n') + 1
+        lines_with_quotes.add(line_num)
+
+    # Generate logs for each affected line
+    for line_num in sorted(lines_with_quotes):
+        deprecation_refactors.append(
+            DbtDeprecationRefactor(
+                log=f"Replaced fancy quotes with standard double quotes on line {line_num}"
+            )
+        )
+
+    # Replace all fancy quotes in one pass
+    refactored_yaml = fancy_quotes_pattern.sub('"', yml_str)
+    refactored = refactored_yaml != yml_str
+
+    return YMLRuleRefactorResult(
+        rule_name="replace_fancy_quotes",
+        refactored=refactored,
+        refactored_yaml=refactored_yaml,
+        original_yaml=yml_str,
+        deprecation_refactors=deprecation_refactors,
+    )
+
+
 def changeset_owner_properties_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:
     """Generates a refactored YAML string from a single YAML file
     - moves all the owner fields that are not in owner_properties under config.meta
