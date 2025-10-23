@@ -19,6 +19,7 @@ from dbt_autofix.refactor import (
     remove_unmatched_endings,
     skip_file,
 )
+from dbt_autofix.refactors.changesets.dbt_schema_yml import changeset_replace_fancy_quotes
 from dbt_autofix.retrieve_schemas import SchemaSpecs
 
 from dbt_autofix.refactors.yml import dict_to_yaml_str
@@ -1692,6 +1693,90 @@ models:
         assert len(result.refactor_logs) == 2  # Two tab characters found
         lines = result.refactored_yaml.split("\n")
         assert lines[5] == "      materialized: table"  # 6 spaces (tab+4 spaces)
+
+
+class TestReplaceFancyQuotes:
+    """Tests for changeset_replace_fancy_quotes function"""
+
+    def test_no_fancy_quotes_no_changes(self):
+        """Test that YAML without fancy quotes is not modified"""
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    description: "A test model"
+    columns:
+      - name: id
+        description: "Primary key"
+"""
+        result = changeset_replace_fancy_quotes(input_yaml)
+        assert not result.refactored
+        assert len(result.refactor_logs) == 0
+        assert result.refactored_yaml == input_yaml
+        assert result.rule_name == "replace_fancy_quotes"
+
+    def test_replace_left_double_quote(self):
+        """Test replacing U+201C (") with standard quote"""
+        input_yaml = 'model-paths: [\u201cmodels"]'
+        result = changeset_replace_fancy_quotes(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "line 1" in result.refactor_logs[0]
+        assert "fancy quotes" in result.refactor_logs[0]
+        assert result.refactored_yaml == 'model-paths: ["models"]'
+
+    def test_replace_right_double_quote(self):
+        """Test replacing U+201D (") with standard quote"""
+        input_yaml = 'model-paths: ["models\u201d]'
+        result = changeset_replace_fancy_quotes(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "line 1" in result.refactor_logs[0]
+        assert "fancy quotes" in result.refactor_logs[0]
+        assert result.refactored_yaml == 'model-paths: ["models"]'
+
+    def test_replace_both_fancy_quotes(self):
+        """Test replacing both U+201C and U+201D in same line"""
+        input_yaml = 'model-paths: [\u201cmodels\u201d]'
+        result = changeset_replace_fancy_quotes(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "line 1" in result.refactor_logs[0]
+        assert "fancy quotes" in result.refactor_logs[0]
+        assert result.refactored_yaml == 'model-paths: ["models"]'
+
+    def test_replace_fancy_quotes_multiple_lines(self):
+        """Test replacing fancy quotes across multiple lines"""
+        input_yaml = """version: 2
+models:
+  - name: \u201ctest_model\u201d
+    description: \u201cA test\u201d"""
+        expected_yaml = """version: 2
+models:
+  - name: "test_model"
+    description: "A test\""""
+        result = changeset_replace_fancy_quotes(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 2  # Two lines with fancy quotes
+        assert "line 3" in result.refactor_logs[0]
+        assert "line 4" in result.refactor_logs[1]
+        assert result.refactored_yaml == expected_yaml
+
+    def test_yaml_structure_preserved(self):
+        """Test that YAML structure and indentation are preserved"""
+        input_yaml = """version: 2
+models:
+  - name: \u201ctest_model\u201d
+    columns:
+      - name: \u201cid\u201d
+"""
+        result = changeset_replace_fancy_quotes(input_yaml)
+        assert result.refactored
+        # Verify structure is preserved
+        lines = result.refactored_yaml.split("\n")
+        assert lines[0] == "version: 2"
+        assert lines[2].startswith("  - name:")
+        assert lines[4].startswith("      - name:")
 
 
 class TestRemoveDuplicateKeys:
