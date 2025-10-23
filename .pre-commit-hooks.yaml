@@ -3,7 +3,6 @@
   description: Check for dbt deprecations using dbt-autofix (dry-run mode)
   entry: python -m pre_commit_hooks.check_deprecations --dry-run
   language: python
-  files: ^(models|snapshots|macros|tests|seeds|analyses)/.*\.(sql|ya?ml)$|^dbt_project\.ya?ml$
   pass_filenames: true
 
 - id: dbt-autofix-fix
@@ -11,5 +10,4 @@
   description: Automatically fix dbt deprecations using dbt-autofix
   entry: python -m pre_commit_hooks.check_deprecations
   language: python
-  files: ^(models|snapshots|macros|tests|seeds|analyses)/.*\.(sql|ya?ml)$|^dbt_project\.ya?ml$
   pass_filenames: true
