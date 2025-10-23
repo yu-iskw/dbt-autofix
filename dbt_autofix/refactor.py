@@ -23,6 +23,7 @@ from dbt_autofix.refactors.changesets.dbt_schema_yml import (
     changeset_refactor_yml_str,
     changeset_owner_properties_yml_str,
     changeset_replace_non_alpha_underscores_in_name_values,
+    changeset_replace_fancy_quotes,
 )
 from dbt_autofix.refactors.changesets.dbt_project_yml import (
     changeset_dbt_project_flip_behavior_flags,
@@ -81,6 +82,7 @@ def process_yaml_files_except_dbt_project(
         (changeset_replace_non_alpha_underscores_in_name_values, schema_specs),
     ]
     safe_change_rules = [
+        (changeset_replace_fancy_quotes, None),
         (changeset_remove_tab_only_lines, None),
         (changeset_remove_indentation_version, None),
         (changeset_remove_extra_tabs, None),
@@ -197,6 +199,7 @@ def process_dbt_project_yml(
 
     behavior_change_rules = [(changeset_dbt_project_flip_behavior_flags, None)]
     safe_change_rules = [
+        (changeset_replace_fancy_quotes, None),
         (changeset_remove_duplicate_keys, None),
         (changeset_dbt_project_flip_test_arguments_behavior_flag, None),
         (changeset_dbt_project_remove_deprecated_config, exclude_dbt_project_keys),
@@ -482,21 +485,27 @@ def changeset_all_sql_yml_files(  # noqa: PLR0913
         - List of YAML refactor results
         - List of SQL refactor results
     """
-    dbt_paths_to_node_type = get_dbt_files_paths(path, include_packages)
-    dbt_paths = list(dbt_paths_to_node_type.keys())
+    # Get dbt root paths first (doesn't parse dbt_project.yml)
     dbt_roots_paths = get_dbt_roots_paths(path, include_packages)
 
-    sql_results = process_sql_files(path, dbt_paths_to_node_type, schema_specs, dry_run, select, behavior_change, all)
-
-    # Process dbt_project.yml
+    # Process dbt_project.yml FIRST before we try to read it for paths
+    # This ensures fancy quotes and other issues are fixed before parsing
     dbt_project_yml_results = []
     if not semantic_layer:
         for dbt_root_path in dbt_roots_paths:
-            dbt_project_yml_results.append(
-                process_dbt_project_yml(
-                    Path(dbt_root_path), schema_specs, dry_run, exclude_dbt_project_keys, behavior_change, all
-                )
+            result = process_dbt_project_yml(
+                Path(dbt_root_path), schema_specs, dry_run, exclude_dbt_project_keys, behavior_change, all
             )
+            dbt_project_yml_results.append(result)
+            # If not dry run, write the changes immediately before reading the file
+            if not dry_run and result.refactored:
+                result.update_yaml_file()
+
+    # Now we can safely read dbt_project.yml to get paths
+    dbt_paths_to_node_type = get_dbt_files_paths(path, include_packages)
+    dbt_paths = list(dbt_paths_to_node_type.keys())
+
+    sql_results = process_sql_files(path, dbt_paths_to_node_type, schema_specs, dry_run, select, behavior_change, all)
 
     # Process YAML files
     semantic_definitions = SemanticDefinitions(path, dbt_paths) if semantic_layer else None
