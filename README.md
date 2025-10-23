@@ -125,3 +125,22 @@ Please make my dbt project compatible with Fusion by strictly following the inst
 Have you had to make manual adjustments to get your dbt project working with Fusion? We’d love for you to contribute them back to the community through this agentic workflow!
 
 The `/manual_fixes/` folder is a collection of real examples where users have solved compatibility issues manually, and we would love your contribution to it. Your contribution helps improve autofix for everyone and can prevent others from hitting the same issue. 
+
+### Pre-commit Hooks
+
+You can use `dbt-autofix` as a pre-commit hook to automatically catch and fix deprecations before committing code. 
+
+Add the following to your `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/dbt-labs/dbt-autofix
+    rev: v0.13.x # or 'main' or 'HEAD'
+    hooks:
+      - id: dbt-autofix-check # Check for deprecations without making changes
+      # OR
+      - id: dbt-autofix-fix # Automatically fix deprecations
+      # OR
+      - id: dbt-autofix-fix # Pass in multiple args
+        args: [--semantic-layer, --include-packages, --behavior-change]      
+```
