@@ -83,46 +83,86 @@ models:
           - name: revenue
             offset_window: 1 month
             alias: revenue_prev_month
+      - name: revenue_1
+        description: The revenue generated for each order item. Revenue is calculated as a sum of revenue associated with each product in an order.
+        agg: sum
+        expr: product_price
+        type: simple
+        hidden: true
       - name: cumulative_revenue
         description: The cumulative revenue for all orders.
         label: Cumulative Revenue (All Time)
         type: cumulative
-        input_metric: revenue
-      - name: revenue_fill_nulls_with_test_join_to_timespine
-        description: Sum of the product revenue for each order item. Excludes tax.
-        type: simple
-        label: Revenue
+        input_metric: revenue_1
+      - name: revenue_fill_nulls_with_150_join_to_timespine
+        description: The revenue generated for each order item. Revenue is calculated as a sum of revenue associated with each product in an order.
         agg: sum
         expr: product_price
+        type: simple
+        hidden: true
+        fill_nulls_with: 150
+        join_to_timespine: true
+      - name: cumulative_revenue_with_input_settings
+        description: The cumulative revenue for all orders, but now with fill_nulls_with and join_to_timespine settings.
+        label: Cumulative Revenue (All Time)
+        type: cumulative
+        input_metric:
+          name: revenue_fill_nulls_with_150_join_to_timespine
+      - name: revenue_fill_nulls_with_test_join_to_timespine
+        description: The revenue generated for each order item. Revenue is calculated as a sum of revenue associated with each product in an order.
+        agg: sum
+        expr: product_price
+        type: simple
         hidden: true
         fill_nulls_with: test
         join_to_timespine: true
-      - name: food_revenue_fill_nulls_with_test
-        description: The revenue from food in each order
-        label: Food Revenue
-        type: simple
+      - name: food_revenue_fill_nulls_with_negative_12
+        description: The revenue generated for each order item. Revenue is calculated as a sum of revenue associated with each product in an order.
         agg: sum
         expr: case when is_food_item is true then product_price else 0 end
+        type: simple
         hidden: true
-        fill_nulls_with: test
+        fill_nulls_with: -12
       - name: conversion_metric
         description: The conversion metric description
         type: conversion
         label: Conversion Metric
+        base_metric:
+          name: revenue_fill_nulls_with_test_join_to_timespine
+          filter: filter
+        conversion_metric:
+          name: food_revenue_fill_nulls_with_negative_12
         entity: entity
         calculation: calculation_type
         window: window
         constant_properties:
           - base_property: dimension
             conversion_property: entity
-
-        base_metric:
-          name: revenue_fill_nulls_with_test_join_to_timespine
-          filter: filter
-        conversion_metric:
-          name: food_revenue_fill_nulls_with_test
+      - name: revenue_join_to_timespine
+        description: The revenue generated for each order item. Revenue is calculated as a sum of revenue associated with each product in an order.
+        agg: sum
+        expr: product_price
+        type: simple
+        hidden: true
+        join_to_timespine: true
 metrics:
   # Simple metrics
+  - name: conversion_metric_across_two_models
+    description: The conversion metric description across two models and should be kept top level
+    type: conversion
+    label: Conversion Metric Across Two Models
+    base_metric:
+      name: revenue_join_to_timespine
+    conversion_metric:
+      name: average_tax_rate_fill_nulls_with_8675309
+      filter: blah blah filter stuff here
+    entity: entity
+    calculation: calculation_type
+    window: window
+    constant_properties:
+      - base_property: dimension
+        conversion_property: entity
+
   - name: order_gross_profit
     description: Gross profit from each order.
     type: derived
