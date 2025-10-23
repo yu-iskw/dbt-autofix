@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from dbt_autofix.refactor import changeset_all_sql_yml_files, get_dbt_files_paths
+from dbt_autofix.refactor import apply_changesets, changeset_all_sql_yml_files, get_dbt_files_paths
 from dbt_autofix.refactors.results import SQLRefactorResult, YMLRefactorResult
 from dbt_autofix.retrieve_schemas import SchemaSpecs
 
@@ -97,21 +97,9 @@ def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def check_for_changes(yaml_results: List[YMLRefactorResult], sql_results: List[SQLRefactorResult]) -> bool:
+def has_any_changes(yaml_results: List[YMLRefactorResult], sql_results: List[SQLRefactorResult]) -> bool:
     """Check if any changesets contain refactoring changes."""
-    has_changes = False
-
-    for changeset in yaml_results:
-        if changeset.refactored:
-            has_changes = True
-            changeset.print_to_console(json_output=False)
-
-    for changeset in sql_results:
-        if changeset.refactored:
-            has_changes = True
-            changeset.print_to_console(json_output=False)
-
-    return has_changes
+    return any(c.refactored for c in yaml_results) or any(c.refactored for c in sql_results)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -121,7 +109,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     select = filter_relevant_files(args.filenames)
 
     if select is not None and len(select) == 0:
-        return 0  # Success = No relevant files to check
+        return 0  # No relevant files to check
 
     schema_specs = SchemaSpecs(version=None)
     changesets = changeset_all_sql_yml_files(
@@ -138,12 +126,22 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     yaml_results, sql_results = changesets
 
-    has_changes = check_for_changes(yaml_results, sql_results)
+    if args.dry_run:
+        for changeset in yaml_results:
+            if changeset.refactored:
+                changeset.print_to_console(json_output=False)
+        for changeset in sql_results:
+            if changeset.refactored:
+                changeset.print_to_console(json_output=False)
+    else:
+        # Fix mode
+        apply_changesets(yaml_results, sql_results, json_output=False)
 
-    if args.dry_run and has_changes:
-        return 1  # Fail = Deprecations found in dry-run mode
+    has_changes = has_any_changes(yaml_results, sql_results)
+    if has_changes:
+        return 1  # For pre-commit: changes found (dry-run) or made (fix mode)
 
-    return 0  # Success = No deprecations found or deprecations fixed / no deprecations found
+    return 0  # No changes needed
 
 
 if __name__ == "__main__":
