@@ -80,6 +80,11 @@ def refactor_yml(  # noqa: PLR0913
         semantic_layer,
     )
     yaml_results, sql_results = changesets
+
+    def _has_updates(result) -> bool:
+        return getattr(result, "refactored", False) or getattr(result, "has_warnings", False)
+
+    has_refactors = any(_has_updates(result) for result in [*yaml_results, *sql_results])
     if dry_run:
         if not json_output:
             error_console.print("[red]-- Dry run mode, not applying changes --[/red]")
@@ -94,6 +99,14 @@ def refactor_yml(  # noqa: PLR0913
 
     if json_output:
         print(json.dumps({"mode": "complete"}))  # noqa: T201
+
+    if has_refactors:
+        context = typer.get_current_context(silent=True)
+        if context is not None:
+            raise typer.Exit(code=1)
+        return 1
+
+    return 0
 
 
 @app.command(name="jobs")
