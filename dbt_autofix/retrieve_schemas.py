@@ -69,8 +69,8 @@ class SchemaSpecs:
         # "sources"
         source_property_field_name, source_config_field_name = self._get_yml_schema_fields(yml_schema, "sources")
         yaml_specs_sources = YAMLSpecs(
-            allowed_config_fields=set(yml_schema["definitions"][source_config_field_name]["properties"]).union(node_type_to_config_key_aliases["sources"]),
-            allowed_properties=set(yml_schema["definitions"][source_property_field_name]["properties"]),
+            allowed_config_fields=set(yml_schema["definitions"][source_config_field_name]["properties"]),
+            allowed_properties=set(yml_schema["definitions"][source_property_field_name]["properties"]).union(node_type_to_config_key_aliases["sources"]),
         )
         source_property_field_name_dbt_project = self._get_dbt_project_schema_fields(dbt_project_schema, "sources")
         dbtproject_specs_sources = DbtProjectSpecs(
