@@ -62,11 +62,14 @@ def refactor_yml(  # noqa: PLR0913
         bool, typer.Option("--all", help="Run all fixes, including those that may require a behavior change")
     ] = False,
     semantic_layer: Annotated[bool, typer.Option("--semantic-layer", help="Run fixes to semantic layer")] = False,
+    disable_ssl_verification: Annotated[
+        bool, typer.Option("--disable-ssl-verification", help="Disable SSL verification", hidden=True)
+    ] = False,
 ):
     if semantic_layer and include_packages:
         raise typer.BadParameter("--include-packages is not supported with --semantic-layer")
 
-    schema_specs = SchemaSpecs(json_schema_version)
+    schema_specs = SchemaSpecs(json_schema_version, disable_ssl_verification)
 
     changesets = changeset_all_sql_yml_files(
         path,
@@ -140,8 +143,11 @@ def print_fields_matrix(
     json_schema_version: Annotated[
         Optional[str], typer.Option("--json-schema-version", help="Specific version of the JSON schema to use")
     ] = None,
+    disable_ssl_verification: Annotated[
+        bool, typer.Option("--disable-ssl-verification", help="Disable SSL verification", hidden=True)
+    ] = False,
 ):
-    print_matrix(json_schema_version)
+    print_matrix(json_schema_version, disable_ssl_verification)
 
 
 def version_callback(show_version: bool):
