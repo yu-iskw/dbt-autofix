@@ -350,8 +350,8 @@ models:
                 assert '+tags:' in line
                 assert '+ tags:' not in line
 
-    def test_invalid_key_not_fixed(self, schema_specs: MockSchemaSpecs):
-        """Test that keys not in the schema are not fixed (space is kept)"""
+    def test_invalid_key_removed(self, schema_specs: MockSchemaSpecs):
+        """Test that keys not in the schema are removed entirely"""
         input_yaml = """
 name: my_project
 
@@ -363,20 +363,25 @@ models:
 """
         result = changeset_fix_space_after_plus(input_yaml, schema_specs)
         
-        # Should only fix the valid key (+tags), not the invalid one
+        # Should fix the valid key (+tags) and remove the invalid one
         assert result.refactored
-        assert len(result.deprecation_refactors) == 1
+        assert len(result.deprecation_refactors) == 2
         
         # +tags should be fixed
         assert "+tags:" in result.refactored_yaml
-        assert result.deprecation_refactors[0].log == "Removed space after '+' in key '+ tags' on line 7, changed to '+tags'"
         
-        # Invalid key should NOT be fixed - space should remain
-        assert "+ custom_invalid_key:" in result.refactored_yaml
+        # Invalid key should be completely removed (not just left with space)
+        assert "+ custom_invalid_key:" not in result.refactored_yaml
         assert "+custom_invalid_key:" not in result.refactored_yaml
+        assert "custom_invalid_key" not in result.refactored_yaml
+        
+        # Check logs
+        fix_logs = [r.log for r in result.deprecation_refactors]
+        assert any("changed to '+tags'" in log for log in fix_logs)
+        assert any("Removed invalid key '+ custom_invalid_key'" in log for log in fix_logs)
 
-    def test_all_invalid_keys_not_fixed(self, schema_specs: MockSchemaSpecs):
-        """Test that when all keys are invalid, nothing is changed"""
+    def test_all_invalid_keys_removed(self, schema_specs: MockSchemaSpecs):
+        """Test that when all keys are invalid, they are all removed"""
         input_yaml = """
 name: my_project
 
@@ -387,10 +392,17 @@ models:
 """
         result = changeset_fix_space_after_plus(input_yaml, schema_specs)
         
-        # Nothing should be fixed
-        assert not result.refactored
-        assert len(result.deprecation_refactors) == 0
+        # Invalid keys should be removed
+        assert result.refactored
+        assert len(result.deprecation_refactors) == 2
         
-        # Invalid keys should remain unchanged
-        assert "+ invalid_key1:" in result.refactored_yaml
-        assert "+ invalid_key2:" in result.refactored_yaml
+        # Invalid keys should be completely removed
+        assert "+ invalid_key1:" not in result.refactored_yaml
+        assert "+ invalid_key2:" not in result.refactored_yaml
+        assert "invalid_key1" not in result.refactored_yaml
+        assert "invalid_key2" not in result.refactored_yaml
+        
+        # Check logs
+        fix_logs = [r.log for r in result.deprecation_refactors]
+        assert any("Removed invalid key '+ invalid_key1'" in log for log in fix_logs)
+        assert any("Removed invalid key '+ invalid_key2'" in log for log in fix_logs)
