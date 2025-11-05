@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -253,13 +254,11 @@ def changeset_fix_space_after_plus(yml_str: str, schema_specs: SchemaSpecs) -> Y
     
     Args:
         yml_str: The YAML string to process
-        schema_specs: The schema specifications to validate against
+        schema_specs: The schema specifications (not currently used but kept for API consistency)
         
     Returns:
         YMLRuleRefactorResult containing the refactored YAML and any changes made
     """
-    import re  # noqa: PLC0415
-    
     refactored = False
     deprecation_refactors: List[DbtDeprecationRefactor] = []
     
