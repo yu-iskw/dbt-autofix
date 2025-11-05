@@ -241,3 +241,92 @@ def changeset_dbt_project_flip_test_arguments_behavior_flag(yml_str: str) -> YML
             original_yaml=yml_str,
             deprecation_refactors=deprecation_refactors,
         )
+
+
+def changeset_fix_space_after_plus(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:
+    """Fix keys that have a space after the '+' prefix (e.g., '+ tags' -> '+tags').
+    
+    This fixes the dbt1060 error: "Ignored unexpected key '+ tags'".
+    When users accidentally add a space after the '+' in config keys, it creates
+    an invalid key. This function detects and fixes such keys.
+    
+    Args:
+        yml_str: The YAML string to process
+        schema_specs: The schema specifications to validate against
+        
+    Returns:
+        YMLRuleRefactorResult containing the refactored YAML and any changes made
+    """
+    import re
+    
+    refactored = False
+    deprecation_refactors: List[DbtDeprecationRefactor] = []
+    
+    # Pattern to match keys with space after plus: "+ key:" at the start of the line (after indentation)
+    # We need to be careful to only match actual keys, not values
+    pattern = re.compile(r'^(\s*)\+\s+(\w+)(\s*:)', re.MULTILINE)
+    
+    # First, let's identify all the matches and validate them
+    matches = list(pattern.finditer(yml_str))
+    
+    if not matches:
+        return YMLRuleRefactorResult(
+            rule_name="fix_space_after_plus",
+            refactored=False,
+            refactored_yaml=yml_str,
+            original_yaml=yml_str,
+            deprecation_refactors=[],
+        )
+    
+    # Load YAML to check if the fixed key would be valid
+    yml_dict = DbtYAML().load(yml_str) or {}
+    
+    # Collect all valid config keys from schema specs
+    all_valid_config_keys = set()
+    for node_type, node_fields in schema_specs.dbtproject_specs_per_node_type.items():
+        all_valid_config_keys.update(node_fields.allowed_config_fields_dbt_project_with_plus)
+    
+    # Build the refactored string by replacing matches
+    refactored_yaml = yml_str
+    offset = 0  # Track offset due to string length changes
+    
+    for match in matches:
+        indent = match.group(1)
+        key_name = match.group(2)
+        colon_and_space = match.group(3)
+        
+        # The corrected key would be "+key"
+        corrected_key = f"+{key_name}"
+        
+        # Check if the corrected key is valid OR if the original invalid key exists
+        # We should fix it regardless to remove the space
+        original_full_match = match.group(0)
+        corrected_full = f"{indent}{corrected_key}{colon_and_space}"
+        
+        # Calculate positions with offset
+        start_pos = match.start() + offset
+        end_pos = match.end() + offset
+        
+        # Replace in the string
+        refactored_yaml = refactored_yaml[:start_pos] + corrected_full + refactored_yaml[end_pos:]
+        
+        # Update offset
+        offset += len(corrected_full) - len(original_full_match)
+        
+        # Calculate line number for logging
+        line_num = yml_str[:match.start()].count('\n') + 1
+        
+        refactored = True
+        deprecation_refactors.append(
+            DbtDeprecationRefactor(
+                log=f"Removed space after '+' in key '+ {key_name}' on line {line_num}, changed to '{corrected_key}'"
+            )
+        )
+    
+    return YMLRuleRefactorResult(
+        rule_name="fix_space_after_plus",
+        refactored=refactored,
+        refactored_yaml=refactored_yaml,
+        original_yaml=yml_str,
+        deprecation_refactors=deprecation_refactors,
+    )
