@@ -1,7 +1,6 @@
 """Tests for changeset_fix_space_after_plus function"""
 
 import pytest
-from yaml import safe_load
 
 from dbt_autofix.refactors.changesets.dbt_project_yml import changeset_fix_space_after_plus
 

@@ -1,8 +1,9 @@
-import yamllint.config
-from typing import List, Dict, Any, Optional
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from dbt_autofix.refactors.results import YMLRuleRefactorResult, DbtDeprecationRefactor
+import yamllint.config
+
+from dbt_autofix.refactors.results import DbtDeprecationRefactor, YMLRuleRefactorResult
 from dbt_autofix.refactors.yml import DbtYAML
 from dbt_autofix.retrieve_schemas import DbtProjectSpecs, SchemaSpecs
 
@@ -257,7 +258,7 @@ def changeset_fix_space_after_plus(yml_str: str, schema_specs: SchemaSpecs) -> Y
     Returns:
         YMLRuleRefactorResult containing the refactored YAML and any changes made
     """
-    import re
+    import re  # noqa: PLC0415
     
     refactored = False
     deprecation_refactors: List[DbtDeprecationRefactor] = []
@@ -277,14 +278,6 @@ def changeset_fix_space_after_plus(yml_str: str, schema_specs: SchemaSpecs) -> Y
             original_yaml=yml_str,
             deprecation_refactors=[],
         )
-    
-    # Load YAML to check if the fixed key would be valid
-    yml_dict = DbtYAML().load(yml_str) or {}
-    
-    # Collect all valid config keys from schema specs
-    all_valid_config_keys = set()
-    for node_type, node_fields in schema_specs.dbtproject_specs_per_node_type.items():
-        all_valid_config_keys.update(node_fields.allowed_config_fields_dbt_project_with_plus)
     
     # Build the refactored string by replacing matches
     refactored_yaml = yml_str
