@@ -10,46 +10,65 @@ from dbt_autofix.retrieve_schemas import SchemaSpecs
 from dbt_autofix.deprecations import DeprecationType
 from dbt_autofix.refactors.yml import DbtYAML, dict_to_yaml_str, yaml_config
 from dbt_autofix.refactors.constants import COMMON_PROPERTY_MISSPELLINGS, COMMON_CONFIG_MISSPELLINGS
+from dbt_autofix.refactors.fancy_quotes_utils import FANCY_LEFT_PLACEHOLDER, FANCY_RIGHT_PLACEHOLDER
 
 NUM_SPACES_TO_REPLACE_TAB = 2
 
 
 def changeset_replace_fancy_quotes(yml_str: str) -> YMLRuleRefactorResult:
-    """Replace fancy/curly quotes (U+201C, U+201D) with standard ASCII double quotes.
+    """Replace fancy quotes with appropriate handling based on context.
 
-    Fancy quotes can break YAML parsing as they are not recognized as valid quote characters.
-    This changeset replaces:
-    - U+201C (") LEFT DOUBLE QUOTATION MARK with "
-    - U+201D (") RIGHT DOUBLE QUOTATION MARK with "
+    Fancy quotes (U+201C ", U+201D ") are handled differently based on their position:
+    - Fancy quotes used as YAML delimiters: Replaced with regular quotes
+    - Fancy quotes inside string values: Preserved using placeholders (restored later)
 
     Args:
         yml_str: The YAML string to process
 
     Returns:
-        YMLRuleRefactorResult containing the refactored YAML and any changes made
+        YMLRuleRefactorResult containing the refactored YAML
     """
     deprecation_refactors: List[DbtDeprecationRefactor] = []
 
-    # Pattern to match fancy quotes: U+201C or U+201D
-    fancy_quotes_pattern = re.compile(r'[\u201c\u201d]')
+    # Check if we have any fancy quotes to replace
+    has_fancy_quotes = '\u201c' in yml_str or '\u201d' in yml_str
 
-    # Find all matches with their positions to track line numbers
-    lines_with_quotes = set()
-    for match in fancy_quotes_pattern.finditer(yml_str):
-        line_num = yml_str[:match.start()].count('\n') + 1
-        lines_with_quotes.add(line_num)
-
-    # Generate logs for each affected line
-    for line_num in sorted(lines_with_quotes):
-        deprecation_refactors.append(
-            DbtDeprecationRefactor(
-                log=f"Replaced fancy quotes with standard double quotes on line {line_num}"
-            )
+    if not has_fancy_quotes:
+        # No fancy quotes to process
+        return YMLRuleRefactorResult(
+            rule_name="replace_fancy_quotes",
+            refactored=False,
+            refactored_yaml=yml_str,
+            original_yaml=yml_str,
+            deprecation_refactors=deprecation_refactors,
         )
 
-    # Replace all fancy quotes in one pass
-    refactored_yaml = fancy_quotes_pattern.sub('"', yml_str)
-    refactored = refactored_yaml != yml_str
+    lines = yml_str.split('\n')
+    refactored_lines = []
+    refactored = False
+
+    for line_num, line in enumerate(lines, 1):
+        if '\u201c' not in line and '\u201d' not in line:
+            refactored_lines.append(line)
+            continue
+
+        # Parse the line to distinguish between fancy quotes as delimiters vs. content
+        new_line, line_refactored, inside_string_positions = _process_line_fancy_quotes(line)
+
+        if line_refactored:
+            refactored = True
+            # Count how many fancy quotes were replaced (not preserved)
+            delimiter_count = (line.count('\u201c') + line.count('\u201d')) - len(inside_string_positions)
+            if delimiter_count > 0:
+                deprecation_refactors.append(
+                    DbtDeprecationRefactor(
+                        log=f"Replaced {delimiter_count} fancy quotes with regular quotes on line {line_num}"
+                    )
+                )
+
+        refactored_lines.append(new_line)
+
+    refactored_yaml = '\n'.join(refactored_lines)
 
     return YMLRuleRefactorResult(
         rule_name="replace_fancy_quotes",
@@ -58,6 +77,109 @@ def changeset_replace_fancy_quotes(yml_str: str) -> YMLRuleRefactorResult:
         original_yaml=yml_str,
         deprecation_refactors=deprecation_refactors,
     )
+
+
+def _process_line_fancy_quotes(line: str) -> Tuple[str, bool, List[int]]:
+    """Process a single line to handle fancy quotes based on context.
+
+    Returns:
+        - The processed line
+        - Whether the line was modified
+        - List of positions where fancy quotes are inside strings (preserved)
+    """
+    result = []
+    inside_string = False
+    string_start_char = None  # Track what character started the current string
+    inside_string_positions = []
+    refactored = False
+    i = 0
+
+    while i < len(line):
+        char = line[i]
+
+        # Check if this is an escaped character
+        is_escaped = i > 0 and line[i-1] == '\\'
+
+        # Handle regular double quote
+        if char == '"' and not is_escaped:
+            if not inside_string:
+                # Starting a string with regular quote
+                inside_string = True
+                string_start_char = '"'
+            elif string_start_char == '"':
+                # Ending a string that was started with regular quote
+                inside_string = False
+                string_start_char = None
+            # else: it's a regular quote inside a fancy-quote-delimited string (shouldn't happen in practice)
+            result.append(char)
+            i += 1
+            continue
+
+        # Handle fancy left quote
+        if char == '\u201c':
+            if not inside_string:
+                # Fancy quote used as opening delimiter - replace with regular quote
+                refactored = True
+                inside_string = True
+                string_start_char = '\u201c'
+                result.append('"')
+            elif string_start_char == '"':
+                # Fancy quote inside a regular-quote-delimited string - keep as-is (not a delimiter)
+                result.append(char)
+                inside_string_positions.append(i)
+            else:
+                # Fancy quote inside a fancy-quote-delimited string - this is content, replace with regular quote
+                refactored = True
+                result.append('"')
+            i += 1
+            continue
+
+        # Handle fancy right quote
+        if char == '\u201d':
+            if inside_string and string_start_char in ('"', '\u201c'):
+                # This could be closing a string or content inside a string
+                if string_start_char == '\u201c' or string_start_char == '\u201d' or (string_start_char == '"' and _would_close_string(line, i)):
+                    # Fancy quote used as closing delimiter - replace with regular quote
+                    refactored = True
+                    result.append('"')
+                    if string_start_char in ('\u201c', '"'):
+                        inside_string = False
+                        string_start_char = None
+                elif string_start_char == '"':
+                    # Fancy quote inside a regular-quote-delimited string - keep as-is
+                    result.append(char)
+                    inside_string_positions.append(i)
+                else:
+                    # Replace with regular quote
+                    refactored = True
+                    result.append('"')
+            elif not inside_string:
+                # Fancy quote used as delimiter when not in string - replace
+                refactored = True
+                result.append('"')
+            else:
+                # Keep as-is if inside a regular-quoted string
+                result.append(char)
+                inside_string_positions.append(i)
+            i += 1
+            continue
+
+        result.append(char)
+        i += 1
+
+    return ''.join(result), refactored, inside_string_positions
+
+
+def _would_close_string(line: str, pos: int) -> bool:
+    """Check if a fancy right quote at position pos would close a string.
+
+    This is a simple heuristic: if there's no regular closing quote after this position,
+    then this fancy quote is likely the closing delimiter.
+    """
+    # Look ahead to see if there's a regular closing quote
+    remaining = line[pos+1:]
+    # If there's no regular quote after, this fancy quote is likely the closer
+    return '"' not in remaining
 
 
 def changeset_owner_properties_yml_str(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:

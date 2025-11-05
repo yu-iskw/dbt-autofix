@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Optional
 from rich.console import Console
 
+from dbt_autofix.refactors.fancy_quotes_utils import restore_fancy_quotes
+
 console = Console()
 
 @dataclass
@@ -50,7 +52,9 @@ class YMLRefactorResult:
 
     def update_yaml_file(self) -> None:
         """Update the YAML file with the refactored content"""
-        Path(self.file_path).write_text(self.refactored_yaml)
+        # Restore fancy quotes from placeholders before writing
+        final_yaml = restore_fancy_quotes(self.refactored_yaml)
+        Path(self.file_path).write_text(final_yaml)
 
     def print_to_console(self, json_output: bool = True):
         if not self.refactored:

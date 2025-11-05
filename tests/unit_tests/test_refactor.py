@@ -1746,7 +1746,7 @@ models:
         assert result.refactored_yaml == 'model-paths: ["models"]'
 
     def test_replace_fancy_quotes_multiple_lines(self):
-        """Test replacing fancy quotes across multiple lines"""
+        """Test replacing fancy quotes used as YAML delimiters"""
         input_yaml = """version: 2
 models:
   - name: \u201ctest_model\u201d
@@ -1757,7 +1757,8 @@ models:
     description: "A test\""""
         result = changeset_replace_fancy_quotes(input_yaml)
         assert result.refactored
-        assert len(result.refactor_logs) == 2  # Two lines with fancy quotes
+        # Both lines have fancy quotes used as delimiters, so both should be replaced
+        assert len(result.refactor_logs) == 2
         assert "line 3" in result.refactor_logs[0]
         assert "line 4" in result.refactor_logs[1]
         assert result.refactored_yaml == expected_yaml
@@ -1777,6 +1778,44 @@ models:
         assert lines[0] == "version: 2"
         assert lines[2].startswith("  - name:")
         assert lines[4].startswith("      - name:")
+
+    def test_preserve_fancy_quotes_in_descriptions(self):
+        """Test that fancy quotes inside description values are preserved"""
+        input_yaml = """version: 2
+models:
+  - name: test_model
+    description: "This is a \u201cfancy\u201d example"
+    columns:
+      - name: id
+        description: "Another \u201ctest\u201d with fancy quotes"
+"""
+        result = changeset_replace_fancy_quotes(input_yaml)
+        assert not result.refactored  # No changes since fancy quotes are only in descriptions
+        assert len(result.refactor_logs) == 0
+        assert result.refactored_yaml == input_yaml
+
+    def test_mixed_fancy_quotes_preservation(self):
+        """Test that fancy quotes in descriptions are preserved while others are replaced"""
+        input_yaml = """version: 2
+models:
+  - name: \u201ctest_model\u201d
+    description: "This has \u201cfancy\u201d quotes inside"
+    columns:
+      - name: \u201cid\u201d
+        description: "Keep these \u201cquotes\u201d"
+"""
+        expected_yaml = """version: 2
+models:
+  - name: "test_model"
+    description: "This has \u201cfancy\u201d quotes inside"
+    columns:
+      - name: "id"
+        description: "Keep these \u201cquotes\u201d"
+"""
+        result = changeset_replace_fancy_quotes(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 2  # Two lines with fancy quotes in name fields
+        assert result.refactored_yaml == expected_yaml
 
 
 class TestRemoveDuplicateKeys:
