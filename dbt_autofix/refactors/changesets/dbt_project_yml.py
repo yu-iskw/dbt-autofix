@@ -250,11 +250,12 @@ def changeset_fix_space_after_plus(yml_str: str, schema_specs: SchemaSpecs) -> Y
     
     This fixes the dbt1060 error: "Ignored unexpected key '+ tags'".
     When users accidentally add a space after the '+' in config keys, it creates
-    an invalid key. This function detects and fixes such keys.
+    an invalid key. This function detects and fixes such keys, but only if the
+    corrected key is valid according to the schema.
     
     Args:
         yml_str: The YAML string to process
-        schema_specs: The schema specifications (not currently used but kept for API consistency)
+        schema_specs: The schema specifications to validate corrected keys against
         
     Returns:
         YMLRuleRefactorResult containing the refactored YAML and any changes made
@@ -278,6 +279,11 @@ def changeset_fix_space_after_plus(yml_str: str, schema_specs: SchemaSpecs) -> Y
             deprecation_refactors=[],
         )
     
+    # Collect all valid config keys from schema specs (with + prefix)
+    all_valid_config_keys = set()
+    for node_type, node_fields in schema_specs.dbtproject_specs_per_node_type.items():
+        all_valid_config_keys.update(node_fields.allowed_config_fields_dbt_project_with_plus)
+    
     # Build the refactored string by replacing matches
     refactored_yaml = yml_str
     offset = 0  # Track offset due to string length changes
@@ -290,8 +296,11 @@ def changeset_fix_space_after_plus(yml_str: str, schema_specs: SchemaSpecs) -> Y
         # The corrected key would be "+key"
         corrected_key = f"+{key_name}"
         
-        # Check if the corrected key is valid OR if the original invalid key exists
-        # We should fix it regardless to remove the space
+        # Only fix if the corrected key is valid according to schema
+        if corrected_key not in all_valid_config_keys:
+            # Skip this match - the corrected key is not valid
+            continue
+        
         original_full_match = match.group(0)
         corrected_full = f"{indent}{corrected_key}{colon_and_space}"
         

@@ -1,14 +1,36 @@
 """Tests for changeset_fix_space_after_plus function"""
 
+from dataclasses import dataclass
+
 import pytest
 
 from dbt_autofix.refactors.changesets.dbt_project_yml import changeset_fix_space_after_plus
 
 
+@dataclass
+class MockDbtProjectSpecs:
+    """Mock DbtProjectSpecs for testing"""
+    allowed_config_fields_dbt_project_with_plus: set[str]
+
+
 class MockSchemaSpecs:
     """Mock SchemaSpecs for testing"""
     def __init__(self):
-        self.dbtproject_specs_per_node_type = {}
+        # Common valid config keys that should be recognized
+        valid_keys = {
+            '+tags', '+materialized', '+schema', '+database', '+enabled',
+            '+store_failures', '+target_schema', '+full_refresh', '+grants',
+            '+alias', '+pre-hook', '+post-hook', '+docs', '+persist_docs',
+            '+column_types', '+quote_columns', '+on_schema_change', '+contract',
+        }
+        
+        # Create mock specs for different node types (models, seeds, tests, snapshots, etc.)
+        self.dbtproject_specs_per_node_type = {
+            'models': MockDbtProjectSpecs(allowed_config_fields_dbt_project_with_plus=valid_keys),
+            'seeds': MockDbtProjectSpecs(allowed_config_fields_dbt_project_with_plus=valid_keys),
+            'tests': MockDbtProjectSpecs(allowed_config_fields_dbt_project_with_plus=valid_keys),
+            'snapshots': MockDbtProjectSpecs(allowed_config_fields_dbt_project_with_plus=valid_keys),
+        }
 
 
 @pytest.fixture
@@ -327,3 +349,48 @@ models:
             if '+' in line:
                 assert '+tags:' in line
                 assert '+ tags:' not in line
+
+    def test_invalid_key_not_fixed(self, schema_specs: MockSchemaSpecs):
+        """Test that keys not in the schema are not fixed (space is kept)"""
+        input_yaml = """
+name: my_project
+
+models:
+  my_project:
+    + custom_invalid_key: value
+    + tags:
+      - my-tag
+"""
+        result = changeset_fix_space_after_plus(input_yaml, schema_specs)
+        
+        # Should only fix the valid key (+tags), not the invalid one
+        assert result.refactored
+        assert len(result.deprecation_refactors) == 1
+        
+        # +tags should be fixed
+        assert "+tags:" in result.refactored_yaml
+        assert result.deprecation_refactors[0].log == "Removed space after '+' in key '+ tags' on line 7, changed to '+tags'"
+        
+        # Invalid key should NOT be fixed - space should remain
+        assert "+ custom_invalid_key:" in result.refactored_yaml
+        assert "+custom_invalid_key:" not in result.refactored_yaml
+
+    def test_all_invalid_keys_not_fixed(self, schema_specs: MockSchemaSpecs):
+        """Test that when all keys are invalid, nothing is changed"""
+        input_yaml = """
+name: my_project
+
+models:
+  my_project:
+    + invalid_key1: value
+    + invalid_key2: value
+"""
+        result = changeset_fix_space_after_plus(input_yaml, schema_specs)
+        
+        # Nothing should be fixed
+        assert not result.refactored
+        assert len(result.deprecation_refactors) == 0
+        
+        # Invalid keys should remain unchanged
+        assert "+ invalid_key1:" in result.refactored_yaml
+        assert "+ invalid_key2:" in result.refactored_yaml
