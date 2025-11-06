@@ -30,6 +30,7 @@ from dbt_autofix.refactors.changesets.dbt_project_yml import (
     changeset_dbt_project_flip_test_arguments_behavior_flag,
     changeset_dbt_project_remove_deprecated_config,
     changeset_dbt_project_prefix_plus_for_config,
+    changeset_fix_space_after_plus,
 )
 from dbt_autofix.refactors.changesets.dbt_schema_yml_semantic_layer import (
     changeset_add_metrics_for_measures,
@@ -206,6 +207,7 @@ def process_dbt_project_yml(
         (changeset_remove_duplicate_keys, None),
         (changeset_dbt_project_flip_test_arguments_behavior_flag, None),
         (changeset_dbt_project_remove_deprecated_config, exclude_dbt_project_keys),
+        (changeset_fix_space_after_plus, schema_specs),
         (changeset_dbt_project_prefix_plus_for_config, root_path, schema_specs),
     ]
     all_rules = [*behavior_change_rules, *safe_change_rules]

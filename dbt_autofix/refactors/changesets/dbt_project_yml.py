@@ -1,8 +1,10 @@
-import yamllint.config
-from typing import List, Dict, Any, Optional
+import re
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from dbt_autofix.refactors.results import YMLRuleRefactorResult, DbtDeprecationRefactor
+import yamllint.config
+
+from dbt_autofix.refactors.results import DbtDeprecationRefactor, YMLRuleRefactorResult
 from dbt_autofix.refactors.yml import DbtYAML
 from dbt_autofix.retrieve_schemas import DbtProjectSpecs, SchemaSpecs
 
@@ -241,3 +243,133 @@ def changeset_dbt_project_flip_test_arguments_behavior_flag(yml_str: str) -> YML
             original_yaml=yml_str,
             deprecation_refactors=deprecation_refactors,
         )
+
+
+def changeset_fix_space_after_plus(yml_str: str, schema_specs: SchemaSpecs) -> YMLRuleRefactorResult:
+    """Fix keys that have a space after the '+' prefix (e.g., '+ tags' -> '+tags').
+    
+    This fixes the dbt1060 error: "Ignored unexpected key '+ tags'".
+    When users accidentally add a space after the '+' in config keys, it creates
+    an invalid key. This function:
+    - Fixes valid keys by removing the space (e.g., '+ tags:' -> '+tags:')
+    - Removes invalid keys entirely (keys not in the schema), including their values
+    
+    Args:
+        yml_str: The YAML string to process
+        schema_specs: The schema specifications to validate corrected keys against
+        
+    Returns:
+        YMLRuleRefactorResult containing the refactored YAML and any changes made
+    """
+    refactored = False
+    deprecation_refactors: List[DbtDeprecationRefactor] = []
+    
+    # Pattern to match keys with space after plus: "+ key:" at the start of the line (after indentation)
+    pattern = re.compile(r'^(\s*)\+\s+(\w+)(\s*:)', re.MULTILINE)
+    
+    # First, let's identify all the matches
+    matches = list(pattern.finditer(yml_str))
+    
+    if not matches:
+        return YMLRuleRefactorResult(
+            rule_name="fix_space_after_plus",
+            refactored=False,
+            refactored_yaml=yml_str,
+            original_yaml=yml_str,
+            deprecation_refactors=[],
+        )
+    
+    # Collect all valid config keys from schema specs (with + prefix)
+    all_valid_config_keys = set()
+    for node_type, node_fields in schema_specs.dbtproject_specs_per_node_type.items():
+        all_valid_config_keys.update(node_fields.allowed_config_fields_dbt_project_with_plus)
+    
+    # Separate matches into valid (fix) and invalid (remove) keys
+    # Process in reverse order to maintain correct offsets when removing/replacing
+    matches_with_action = []
+    for match in matches:
+        key_name = match.group(2)
+        corrected_key = f"+{key_name}"
+        line_num = yml_str[:match.start()].count('\n') + 1
+        
+        if corrected_key in all_valid_config_keys:
+            # Valid key - fix by removing space
+            matches_with_action.append(('fix', match, corrected_key, key_name, line_num))
+        else:
+            # Invalid key - remove entire entry
+            matches_with_action.append(('remove', match, corrected_key, key_name, line_num))
+    
+    # Sort by position in reverse to process from end to start (to maintain positions)
+    matches_with_action.sort(key=lambda x: x[1].start(), reverse=True)
+    
+    # Build the refactored string
+    refactored_yaml = yml_str
+    
+    for action, match, corrected_key, key_name, line_num in matches_with_action:
+        if action == 'fix':
+            # Fix by removing space
+            indent = match.group(1)
+            colon_and_space = match.group(3)
+            original_full_match = match.group(0)
+            corrected_full = f"{indent}{corrected_key}{colon_and_space}"
+            
+            start_pos = match.start()
+            end_pos = match.end()
+            
+            refactored_yaml = refactored_yaml[:start_pos] + corrected_full + refactored_yaml[end_pos:]
+            
+            refactored = True
+            deprecation_refactors.insert(0, DbtDeprecationRefactor(
+                log=f"Removed space after '+' in key '+ {key_name}' on line {line_num}, changed to '{corrected_key}'"
+            ))
+        else:  # action == 'remove'
+            # Remove the entire key-value entry
+            # We need to find the entire block to remove, including nested content
+            start_line_pos = refactored_yaml.rfind('\n', 0, match.start()) + 1
+            indent = match.group(1)
+            
+            # Find the end of this entry by looking for the next line with same or less indentation
+            # or the next key at same level
+            lines = refactored_yaml[start_line_pos:].split('\n')
+            lines_to_remove = 1  # Start with the key line itself
+            
+            # Check subsequent lines
+            for i in range(1, len(lines)):
+                line = lines[i]
+                if line.strip() == '':
+                    # Empty line - include it
+                    lines_to_remove += 1
+                    continue
+                
+                # Calculate indentation
+                line_indent = len(line) - len(line.lstrip())
+                key_indent = len(indent)
+                
+                # If this line has more indentation, it's part of the value
+                if line_indent > key_indent:
+                    lines_to_remove += 1
+                else:
+                    # Same or less indentation - this is the next entry
+                    break
+            
+            # Calculate the end position
+            lines_text = '\n'.join(lines[:lines_to_remove])
+            end_pos = start_line_pos + len(lines_text)
+            if end_pos < len(refactored_yaml) and refactored_yaml[end_pos] == '\n':
+                end_pos += 1  # Include the trailing newline
+            
+            # Remove the block
+            refactored_yaml = refactored_yaml[:start_line_pos] + refactored_yaml[end_pos:]
+            
+            refactored = True
+            deprecation_refactors.insert(0, DbtDeprecationRefactor(
+                log=f"Removed invalid key '+ {key_name}' on line {line_num} (not a valid config key)"
+            ))
+    
+    return YMLRuleRefactorResult(
+        rule_name="fix_space_after_plus",
+        refactored=refactored,
+        refactored_yaml=refactored_yaml,
+        original_yaml=yml_str,
+        deprecation_refactors=deprecation_refactors,
+    )
