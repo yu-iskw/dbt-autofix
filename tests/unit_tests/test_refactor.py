@@ -2060,7 +2060,9 @@ models:
         assert len(refactored_dict["models"]) == 1
         assert refactored_dict["models"][0]["name"] == "int__mkp_sleeping_stock_daily"
         assert "deprecation_date" in refactored_dict["models"][0]
-        assert refactored_dict["models"][0]["deprecation_date"] == "2025-04-01"
+        # YAML parser converts date strings to date objects
+        deprecation_date = refactored_dict["models"][0]["deprecation_date"]
+        assert str(deprecation_date) == "2025-04-01" or deprecation_date == "2025-04-01"
 
     def test_multiple_duplicates_same_model(self):
         """Test that multiple duplicates of the same model are handled correctly"""
