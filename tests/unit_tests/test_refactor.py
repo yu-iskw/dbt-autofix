@@ -19,7 +19,10 @@ from dbt_autofix.refactor import (
     remove_unmatched_endings,
     skip_file,
 )
-from dbt_autofix.refactors.changesets.dbt_schema_yml import changeset_replace_fancy_quotes
+from dbt_autofix.refactors.changesets.dbt_schema_yml import (
+    changeset_replace_fancy_quotes,
+    changeset_remove_duplicate_models,
+)
 from dbt_autofix.retrieve_schemas import SchemaSpecs
 
 from dbt_autofix.refactors.yml import dict_to_yaml_str
@@ -2006,6 +2009,175 @@ models:
         assert not result.refactored
         assert len(result.refactor_logs) == 0
         assert result.refactored_yaml == input_yaml
+
+
+class TestRemoveDuplicateModels:
+    """Tests for changeset_remove_duplicate_models function"""
+
+    def test_no_duplicates_no_changes(self):
+        """Test that YAML without duplicate models is not modified"""
+        input_yaml = """
+version: 2
+models:
+  - name: test_model_1
+    description: "A test model"
+  - name: test_model_2
+    description: "Another test model"
+"""
+        result = changeset_remove_duplicate_models(input_yaml)
+        assert not result.refactored
+        assert len(result.refactor_logs) == 0
+        assert result.refactored_yaml == input_yaml
+        assert result.rule_name == "remove_duplicate_models"
+
+    def test_single_duplicate_model(self):
+        """Test that a single duplicate model is detected and first occurrence removed"""
+        input_yaml = """
+version: 2
+models:
+  - name: int__mkp_sleeping_stock_daily
+    description: Daily Marketplace specific sleeping stock at the SKU level
+    columns:
+      - name: sku_code
+        description: Unique variant identifier
+        data_tests:
+          - not_null
+        config:
+          tags: ['sleeping-stock']
+  - name: int__mkp_sleeping_stock_daily
+    description: Deprecated SKU sleeping daily. Refer to mart_mkp__pre_sleeping_stock for latest model.
+    deprecation_date: 2025-04-01
+"""
+        result = changeset_remove_duplicate_models(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+        assert "int__mkp_sleeping_stock_daily" in result.refactor_logs[0]
+        assert "Found duplicate definition" in result.refactor_logs[0]
+        assert "removed first occurrence" in result.refactor_logs[0]
+
+        # Verify the refactored YAML keeps only the second occurrence
+        refactored_dict = safe_load(result.refactored_yaml)
+        assert len(refactored_dict["models"]) == 1
+        assert refactored_dict["models"][0]["name"] == "int__mkp_sleeping_stock_daily"
+        assert "deprecation_date" in refactored_dict["models"][0]
+        assert refactored_dict["models"][0]["deprecation_date"] == "2025-04-01"
+
+    def test_multiple_duplicates_same_model(self):
+        """Test that multiple duplicates of the same model are handled correctly"""
+        input_yaml = """
+version: 2
+models:
+  - name: duplicate_model
+    description: "First occurrence"
+  - name: other_model
+    description: "Other model"
+  - name: duplicate_model
+    description: "Second occurrence"
+  - name: duplicate_model
+    description: "Third occurrence"
+"""
+        result = changeset_remove_duplicate_models(input_yaml)
+        assert result.refactored
+        # Should have one warning for the first duplicate found
+        assert len(result.refactor_logs) == 1
+
+        # Verify only the last occurrence is kept
+        refactored_dict = safe_load(result.refactored_yaml)
+        assert len(refactored_dict["models"]) == 2
+        assert refactored_dict["models"][0]["name"] == "other_model"
+        assert refactored_dict["models"][1]["name"] == "duplicate_model"
+        assert refactored_dict["models"][1]["description"] == "Third occurrence"
+
+    def test_multiple_different_duplicates(self):
+        """Test that multiple different models with duplicates are handled independently"""
+        input_yaml = """
+version: 2
+models:
+  - name: model_a
+    description: "First A"
+  - name: model_b
+    description: "First B"
+  - name: model_a
+    description: "Second A"
+  - name: model_c
+    description: "C"
+  - name: model_b
+    description: "Second B"
+"""
+        result = changeset_remove_duplicate_models(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 2  # One for model_a, one for model_b
+
+        # Verify the refactored YAML
+        refactored_dict = safe_load(result.refactored_yaml)
+        assert len(refactored_dict["models"]) == 3
+        assert refactored_dict["models"][0]["name"] == "model_a"
+        assert refactored_dict["models"][0]["description"] == "Second A"
+        assert refactored_dict["models"][1]["name"] == "model_c"
+        assert refactored_dict["models"][2]["name"] == "model_b"
+        assert refactored_dict["models"][2]["description"] == "Second B"
+
+    def test_models_with_non_dict_items(self):
+        """Test that non-dict items in models list are handled gracefully"""
+        input_yaml = """
+version: 2
+models:
+  - name: test_model
+    description: "Valid model"
+  - "invalid item"
+  - name: test_model
+    description: "Duplicate"
+"""
+        result = changeset_remove_duplicate_models(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+
+        refactored_dict = safe_load(result.refactored_yaml)
+        # Should have 2 items: the invalid string and the duplicate model (second occurrence)
+        assert len(refactored_dict["models"]) == 2
+        assert refactored_dict["models"][1]["name"] == "test_model"
+        assert refactored_dict["models"][1]["description"] == "Duplicate"
+
+    def test_duplicate_with_complex_structure(self):
+        """Test that duplicates with complex nested structures are handled correctly"""
+        input_yaml = """
+version: 2
+models:
+  - name: complex_model
+    description: "First"
+    columns:
+      - name: col1
+        tests:
+          - not_null
+      - name: col2
+        tests:
+          - unique
+    config:
+      materialized: table
+      tags: ['tag1']
+  - name: complex_model
+    description: "Second"
+    columns:
+      - name: col3
+        tests:
+          - not_null
+    config:
+      materialized: view
+      tags: ['tag2']
+"""
+        result = changeset_remove_duplicate_models(input_yaml)
+        assert result.refactored
+        assert len(result.refactor_logs) == 1
+
+        refactored_dict = safe_load(result.refactored_yaml)
+        assert len(refactored_dict["models"]) == 1
+        model = refactored_dict["models"][0]
+        assert model["name"] == "complex_model"
+        assert model["description"] == "Second"
+        assert model["config"]["materialized"] == "view"
+        assert model["config"]["tags"] == ["tag2"]
+        assert len(model["columns"]) == 1
+        assert model["columns"][0]["name"] == "col3"
 
 
 class TestReplaceSpacesUnderscoresInNameValues:

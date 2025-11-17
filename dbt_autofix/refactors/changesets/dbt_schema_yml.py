@@ -846,3 +846,78 @@ def replace_node_name_non_alpha_with_underscores(node: dict[str, str], node_type
             )
 
     return node_copy, node_deprecation_refactors
+
+
+def changeset_remove_duplicate_models(yml_str: str) -> YMLRuleRefactorResult:
+    """Removes duplicate model definitions in YAML files, keeping the last occurrence.
+    
+    When the same model name appears multiple times in the models list, this function
+    removes all but the last occurrence, aligning with dbt's behavior of keeping the
+    last definition when duplicates exist.
+    
+    Args:
+        yml_str: The YAML string to process
+        
+    Returns:
+        YMLRuleRefactorResult containing the refactored YAML and any changes made
+    """
+    refactored = False
+    deprecation_refactors: List[DbtDeprecationRefactor] = []
+    yml_dict = DbtYAML().load(yml_str) or {}
+    
+    if "models" not in yml_dict or not isinstance(yml_dict["models"], list):
+        return YMLRuleRefactorResult(
+            rule_name="remove_duplicate_models",
+            refactored=False,
+            refactored_yaml=yml_str,
+            original_yaml=yml_str,
+            deprecation_refactors=deprecation_refactors,
+        )
+    
+    seen_model_names: Dict[str, List[int]] = {}  # Maps model name to list of occurrence indices
+    indices_to_remove: List[int] = []
+    
+    # First pass: identify all occurrences of each model
+    for i, model in enumerate(yml_dict["models"]):
+        if not isinstance(model, dict):
+            continue
+        
+        model_name = model.get("name")
+        if model_name is None:
+            continue
+        
+        if model_name not in seen_model_names:
+            seen_model_names[model_name] = []
+        seen_model_names[model_name].append(i)
+    
+    # Second pass: identify duplicates and mark all but the last occurrence for removal
+    for model_name, indices in seen_model_names.items():
+        if len(indices) > 1:
+            # Found duplicates - mark all but the last occurrence for removal
+            refactored = True
+            # Remove all indices except the last one (keep the last occurrence)
+            indices_to_remove.extend(indices[:-1])
+            deprecation_refactors.append(
+                DbtDeprecationRefactor(
+                    log=f"Model '{model_name}' - Found duplicate definition, removed first occurrence (keeping the second one).",
+                    deprecation=DeprecationType.DUPLICATE_YAML_KEYS_DEPRECATION
+                )
+            )
+    
+    # Third pass: remove duplicates (in reverse order to maintain indices)
+    if refactored:
+        indices_to_remove.sort(reverse=True)
+        for index in indices_to_remove:
+            yml_dict["models"].pop(index)
+        
+        refactored_yaml = dict_to_yaml_str(yml_dict)
+    else:
+        refactored_yaml = yml_str
+    
+    return YMLRuleRefactorResult(
+        rule_name="remove_duplicate_models",
+        refactored=refactored,
+        refactored_yaml=refactored_yaml,
+        original_yaml=yml_str,
+        deprecation_refactors=deprecation_refactors,
+    )
