@@ -16,6 +16,7 @@ from dbt_autofix.refactors.changesets.dbt_project_yml import (
 from dbt_autofix.refactors.changesets.dbt_schema_yml import (
     changeset_owner_properties_yml_str,
     changeset_refactor_yml_str,
+    changeset_remove_duplicate_models,
     changeset_remove_extra_tabs,
     changeset_remove_indentation_version,
     changeset_remove_tab_only_lines,
@@ -87,6 +88,7 @@ def process_yaml_files_except_dbt_project(
         (changeset_remove_indentation_version, None),
         (changeset_remove_extra_tabs, None),
         (changeset_remove_duplicate_keys, None),
+        (changeset_remove_duplicate_models, None),
         (changeset_refactor_yml_str, schema_specs),
         (changeset_owner_properties_yml_str, schema_specs),
     ]
