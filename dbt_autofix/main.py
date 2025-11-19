@@ -1,8 +1,8 @@
+import json
+from importlib.metadata import version
 from pathlib import Path
 from typing import List, Optional
 
-from importlib.metadata import version
-import json
 import typer
 from rich import print
 from rich.console import Console
@@ -11,9 +11,16 @@ from typing_extensions import Annotated
 from dbt_autofix.dbt_api import update_jobs
 from dbt_autofix.duplicate_keys import find_duplicate_keys, print_duplicate_keys
 from dbt_autofix.fields_properties_configs import print_matrix
+from dbt_autofix.package_upgrade import (
+    PackageUpgradeResult,
+    PackageVersionUpgradeResult,
+    check_for_package_upgrades,
+    generate_package_dependencies,
+    upgrade_package_versions,
+)
+from dbt_autofix.packages.dbt_package_file import DbtPackageFile
 from dbt_autofix.refactor import apply_changesets, changeset_all_sql_yml_files
 from dbt_autofix.retrieve_schemas import SchemaSpecs
-from dbt_autofix.semantic_definitions import SemanticDefinitions
 
 console = Console()
 error_console = Console(stderr=True)
@@ -38,6 +45,46 @@ def identify_duplicate_keys(
     print_duplicate_keys(project_duplicates, package_duplicates)
 
 
+@app.command(name="upgrade-packages")
+def upgrade_packages(
+    path: Annotated[Path, typer.Option("--path", "-p", help="The path to the dbt project")] = current_dir,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-d", help="In dry run mode, do not apply changes")] = False,
+    json_output: Annotated[bool, typer.Option("--json", "-j", help="Output in JSON format")] = False,
+):
+    # TODO: remove this when full package upgrade is available
+    print("[yellow]This command is still under development and will only operate in dry-run mode[/yellow]\n")
+    dry_run = True
+
+    print(f"[green]Identifying packages with available upgrades in {path}[/green]\n")
+    deps_file: Optional[DbtPackageFile] = generate_package_dependencies(path)
+    if not deps_file:
+        error_console.print("[red]-- No package dependency config found --[/red]")
+        return
+
+    if len(deps_file.package_dependencies) == 0:
+        error_console.print("[red]-- No package dependencies found --[/red]")
+        return
+
+    package_upgrades: list[PackageVersionUpgradeResult] = check_for_package_upgrades(deps_file)
+
+    if dry_run:
+        if not json_output:
+            error_console.print("[red]-- Dry run mode, not applying changes --[/red]")
+        upgrade_result = PackageUpgradeResult(
+            dry_run=True,
+            file_path=deps_file.file_path if deps_file.file_path else path,
+            upgraded=False,
+            upgrades=[],
+            unchanged=package_upgrades,
+        )
+        upgrade_result.print_to_console(json_output=True)
+    else:
+        upgrade_package_versions(package_upgrades, json_output)
+
+    if json_output:
+        print(json.dumps({"mode": "complete"}))  # noqa: T201
+
+
 @app.command(name="deprecations")
 def refactor_yml(  # noqa: PLR0913
     path: Annotated[Path, typer.Option("--path", "-p", help="The path to the dbt project")] = current_dir,
@@ -53,7 +100,18 @@ def refactor_yml(  # noqa: PLR0913
         Optional[List[str]], typer.Option("--select", "-s", help="Select specific paths to refactor")
     ] = None,
     include_packages: Annotated[
-        bool, typer.Option("--include-packages", "-i", help="Include packages in the refactoring")
+        bool,
+        typer.Option(
+            "--include-packages", "-i", help="Include all packages (private or public/hub) in the refactoring"
+        ),
+    ] = False,
+    include_private_packages: Annotated[
+        bool,
+        typer.Option(
+            "--include-private-packages",
+            "-ip",
+            help="Include only private packages (non-hub packages) in the refactoring",
+        ),
     ] = False,
     behavior_change: Annotated[
         bool, typer.Option("--behavior-change", help="Run fixes to deprecations that may require a behavior change")
@@ -62,11 +120,14 @@ def refactor_yml(  # noqa: PLR0913
         bool, typer.Option("--all", help="Run all fixes, including those that may require a behavior change")
     ] = False,
     semantic_layer: Annotated[bool, typer.Option("--semantic-layer", help="Run fixes to semantic layer")] = False,
+    disable_ssl_verification: Annotated[
+        bool, typer.Option("--disable-ssl-verification", help="Disable SSL verification", hidden=True)
+    ] = False,
 ):
     if semantic_layer and include_packages:
         raise typer.BadParameter("--include-packages is not supported with --semantic-layer")
 
-    schema_specs = SchemaSpecs(json_schema_version)
+    schema_specs = SchemaSpecs(json_schema_version, disable_ssl_verification)
 
     changesets = changeset_all_sql_yml_files(
         path,
@@ -75,6 +136,7 @@ def refactor_yml(  # noqa: PLR0913
         exclude_dbt_project_keys,
         select,
         include_packages,
+        include_private_packages,
         behavior_change,
         all,
         semantic_layer,
@@ -140,8 +202,11 @@ def print_fields_matrix(
     json_schema_version: Annotated[
         Optional[str], typer.Option("--json-schema-version", help="Specific version of the JSON schema to use")
     ] = None,
+    disable_ssl_verification: Annotated[
+        bool, typer.Option("--disable-ssl-verification", help="Disable SSL verification", hidden=True)
+    ] = False,
 ):
-    print_matrix(json_schema_version)
+    print_matrix(json_schema_version, disable_ssl_verification)
 
 
 def version_callback(show_version: bool):

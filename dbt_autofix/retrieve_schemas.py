@@ -27,7 +27,8 @@ class DbtProjectSpecs:
 
 
 class SchemaSpecs:
-    def __init__(self, version: Optional[str] = None):
+    def __init__(self, version: Optional[str] = None, disable_ssl_verification: bool = False):
+        self.disable_ssl_verification = disable_ssl_verification
         self.yaml_specs_per_node_type, self.dbtproject_specs_per_node_type, self.valid_top_level_yaml_fields = self._get_specs(version)
         self.owner_properties = ["name", "email"]
         self.nodes_with_owner = ["groups", "exposures"]
@@ -37,9 +38,9 @@ class SchemaSpecs:
             logging.basicConfig(level=logging.INFO)
 
         if version is None:
-            version = get_fusion_latest_version()
-        yml_schema = get_fusion_yml_schema(version)
-        dbt_project_schema = get_fusion_dbt_project_schema(version)
+            version = get_fusion_latest_version(self.disable_ssl_verification)
+        yml_schema = get_fusion_yml_schema(version, self.disable_ssl_verification)
+        dbt_project_schema = get_fusion_dbt_project_schema(version, self.disable_ssl_verification)
 
         valid_top_level_yaml_fields = list(yml_schema["properties"].keys())
 
@@ -228,31 +229,31 @@ class SchemaSpecs:
         return property_field_name
 
 
-def get_fusion_latest_version() -> str:
+def get_fusion_latest_version(disable_ssl_verification: bool = False) -> str:
     latest_versions_url = "https://public.cdn.getdbt.com/fs/versions.json"
-    resp = httpx.get(latest_versions_url)
+    resp = httpx.get(latest_versions_url, verify=not disable_ssl_verification)
     resp.raise_for_status()
     return resp.json()["latest"]["tag"]
 
 
-def get_fusion_yml_schema(version: str) -> dict:
+def get_fusion_yml_schema(version: str, disable_ssl_verification: bool = False) -> dict:
     yml_schema_url = f"https://public.cdn.getdbt.com/fs/schemas/fs-schema-dbt-yaml-files-{version}.json"
 
     logging.info(f"Getting fusion yml schema for version {version}: {yml_schema_url}")
-    response = httpx.get(yml_schema_url)
+    response = httpx.get(yml_schema_url, verify=not disable_ssl_verification)
     response.raise_for_status()
 
     # for some reason we have 2 different schemas now in the response
     response_split = response.text.split("----------------------------------------------")
-    
+
     return json.loads(response_split[-1])
 
 
-def get_fusion_dbt_project_schema(version: str) -> dict:
+def get_fusion_dbt_project_schema(version: str, disable_ssl_verification: bool = False) -> dict:
     dbt_project_schema_url = f"https://public.cdn.getdbt.com/fs/schemas/fs-schema-dbt-project-{version}.json"
 
     logging.info(f"Getting fusion dbt project schema for version {version}: {dbt_project_schema_url}")
-    response = httpx.get(dbt_project_schema_url)
+    response = httpx.get(dbt_project_schema_url, verify=not disable_ssl_verification)
     response.raise_for_status()
 
     return response.json()
