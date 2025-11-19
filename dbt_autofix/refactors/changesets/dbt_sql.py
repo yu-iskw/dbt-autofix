@@ -1,4 +1,3 @@
-import ast
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -10,8 +9,71 @@ from dbt_autofix.refactors.constants import COMMON_CONFIG_MISSPELLINGS
 from dbt_autofix.refactors.results import DbtDeprecationRefactor, SQLRuleRefactorResult
 from dbt_autofix.retrieve_schemas import SchemaSpecs
 
-
 CONFIG_MACRO_PATTERN = re.compile(r"(\{\{\s*config\s*\()(.*?)(\)\s*\}\})", re.DOTALL)
+
+
+def extract_config_macro(sql_content: str) -> Optional[str]:
+    """
+    Extract the {{ config(...) }} macro from SQL content.
+    
+    This function properly handles nested Jinja expressions like:
+    incremental_predicate="data_date = '{{ var('run_date') }}'"
+    
+    Args:
+        sql_content: The SQL content to search
+        
+    Returns:
+        The full config macro string, or None if not found
+    """
+    # Find the start of the config macro
+    start_pattern = re.search(r'\{\{\s*config\s*\(', sql_content)
+    if not start_pattern:
+        return None
+    
+    start_pos = start_pattern.start()
+    config_start = start_pattern.end()  # Position after "config("
+    
+    # Track parentheses balance and string state
+    paren_depth = 1  # We're already inside the opening "config("
+    in_string = False
+    string_char = None
+    i = config_start
+    
+    while i < len(sql_content) and paren_depth > 0:
+        char = sql_content[i]
+        
+        # Handle string boundaries
+        if char in ('"', "'") and (i == 0 or sql_content[i-1] != '\\'):
+            if not in_string:
+                in_string = True
+                string_char = char
+            elif char == string_char:
+                in_string = False
+                string_char = None
+        
+        # Track parentheses only when not in a string
+        elif not in_string:
+            if char == '(':
+                paren_depth += 1
+            elif char == ')':
+                paren_depth -= 1
+                
+                # If we're back to depth 0, check if this is followed by }}
+                if paren_depth == 0:
+                    # Look for closing }}
+                    remaining = sql_content[i+1:i+10]
+                    close_match = re.match(r'\s*\}\}', remaining)
+                    if close_match:
+                        end_pos = i + 1 + close_match.end()
+                        return sql_content[start_pos:end_pos]
+                    else:
+                        # This ) is not the end of config, continue
+                        paren_depth = 1
+        
+        i += 1
+    
+    # If we get here, we didn't find a proper closing
+    return None
 
 
 
@@ -134,9 +196,9 @@ def refactor_custom_configs_to_meta_sql(sql_content: str, schema_specs: SchemaSp
     original_sql_configs: Dict[str, Any] = {}
     
     if "config(" in sql_content:
-        # Extract the {{ config(...) }} part of sql_content
-        config_macro_match = CONFIG_MACRO_PATTERN.search(sql_content)
-        config_macro_str = config_macro_match.group(0) if config_macro_match else ""
+        # Extract the {{ config(...) }} part of sql_content using smart extraction
+        # that handles nested Jinja expressions
+        config_macro_str = extract_config_macro(sql_content) or ""
         
         if config_macro_str:
             # Use static parsing to get source code (handles Jinja without rendering)
@@ -234,10 +296,17 @@ def refactor_custom_configs_to_meta_sql(sql_content: str, schema_specs: SchemaSp
         # Serialize the refactored config back to string
         new_config_str = _serialize_config_macro_call(refactored_sql_configs, config_source_map)
         
-        def replace_config(match):
-            return f"{{{{ config({new_config_str}\n) }}}}"
-        
-        refactored_content = CONFIG_MACRO_PATTERN.sub(replace_config, sql_content, count=1)
+        # Replace the config macro in the SQL content
+        # Use extract_config_macro to find the exact location (handles nested Jinja)
+        old_config = extract_config_macro(sql_content)
+        if old_config:
+            new_config = f"{{{{ config({new_config_str}\n) }}}}"
+            refactored_content = sql_content.replace(old_config, new_config, 1)
+        else:
+            # Fallback to regex if extraction failed
+            def replace_config(match):
+                return f"{{{{ config({new_config_str}\n) }}}}"
+            refactored_content = CONFIG_MACRO_PATTERN.sub(replace_config, sql_content, count=1)
 
     return SQLRuleRefactorResult(
         rule_name="move_custom_configs_to_meta_sql",

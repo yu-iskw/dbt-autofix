@@ -2345,3 +2345,71 @@ select 1 as id
         assert result.refactored_content == sql_content
         assert len(result.deprecation_refactors) == 0
 
+    def test_nested_jinja_in_string_preserved(self, schema_specs: SchemaSpecs):
+        """Test that nested Jinja expressions inside strings are correctly preserved"""
+        sql_content = """{{
+  config(
+    materialized='incremental',
+    unique_key='data_date',
+    tags=['gsc', 'mapquest'],
+    persist_docs={"relation": true, "columns": true},
+    incremental_strategy='delete+insert',
+    incremental_predicate="data_date = '{{ var('run_date') }}'",
+    on_schema_change='append_new_columns',
+    contract={'enforced': true}
+  )
+}}
+
+select 1 as id
+"""
+        expected_content = """{{ config(
+    materialized="incremental", 
+    unique_key="data_date", 
+    tags=['gsc', 'mapquest'], 
+    persist_docs={"relation": true, "columns": true}, 
+    incremental_strategy='delete+insert', 
+    on_schema_change="append_new_columns", 
+    contract={'enforced': true}, 
+    meta={'incremental_predicate': "data_date = '{{ var('run_date') }}'"}
+) }}
+
+select 1 as id
+"""
+        result = refactor_custom_configs_to_meta_sql(sql_content, schema_specs, "models")
+        
+        assert result.refactored
+        assert result.refactored_content == expected_content
+        assert len(result.deprecation_refactors) == 1
+        assert "incremental_predicate" in result.deprecation_refactors[0].log
+        assert "meta" in result.deprecation_refactors[0].log
+        # Verify nested Jinja is preserved
+        assert "{{ var('run_date') }}" in result.refactored_content
+
+    def test_jinja_function_call_preserved(self, schema_specs: SchemaSpecs):
+        """Test that Jinja function calls in config values are correctly preserved"""
+        sql_content = """{{ config(
+    tags = ["monthly"]
+    , materialization = 'table'
+    , snowflake_warehouse = get_warehouse('medium')
+) }}
+
+select 1 as id
+"""
+        expected_content = """{{ config(
+    tags=["monthly"], 
+    snowflake_warehouse=get_warehouse('medium'), 
+    meta={'materialization': 'table'}
+) }}
+
+select 1 as id
+"""
+        result = refactor_custom_configs_to_meta_sql(sql_content, schema_specs, "models")
+        
+        assert result.refactored
+        assert result.refactored_content == expected_content
+        assert len(result.deprecation_refactors) == 1
+        assert "materialization" in result.deprecation_refactors[0].log
+        assert "meta" in result.deprecation_refactors[0].log
+        # Verify Jinja function call is preserved
+        assert "get_warehouse('medium')" in result.refactored_content
+
