@@ -1,18 +1,18 @@
+import ast
 import re
-from typing import List, Tuple
-
-from dbt_autofix.refactors.results import SQLRuleRefactorResult
-from dbt_autofix.deprecations import DeprecationType
-from dbt_autofix.refactors.results import DbtDeprecationRefactor
-from dbt_autofix.jinja import statically_parse_unrendered_config
-from dbt_autofix.refactors.constants import COMMON_CONFIG_MISSPELLINGS
-from dbt_common.clients.jinja import get_template, render_template
-from dbt_autofix.retrieve_schemas import SchemaSpecs
 from copy import deepcopy
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from dbt_autofix.deprecations import DeprecationType
+from dbt_autofix.jinja import statically_parse_unrendered_config
+from dbt_autofix.refactors.constants import COMMON_CONFIG_MISSPELLINGS
+from dbt_autofix.refactors.results import DbtDeprecationRefactor, SQLRuleRefactorResult
+from dbt_autofix.retrieve_schemas import SchemaSpecs
 
 
 CONFIG_MACRO_PATTERN = re.compile(r"(\{\{\s*config\s*\()(.*?)(\)\s*\}\})", re.DOTALL)
+
 
 
 def remove_unmatched_endings(sql_content: str) -> SQLRuleRefactorResult:  # noqa: PLR0912
@@ -128,104 +128,116 @@ def refactor_custom_configs_to_meta_sql(sql_content: str, schema_specs: SchemaSp
     deprecation_refactors: List[DbtDeprecationRefactor] = []
     refactor_warnings: list[str] = []
 
-    # Capture original config macro calls
-    original_sql_configs = {}
-    def capture_config(*args, **kwargs):
-        if args and len(args) > 0:
-            original_sql_configs.update(args[0])
-        original_sql_configs.update(kwargs)
-
-    ctx = {"config": capture_config}
-
-    original_statically_parsed_config = {}
-    refactored_sql_configs = None
-    contains_jinja = False
-    try:
-        # Crude way to avoid rendering the template if it doesn't contain 'config'
-        if "config(" in sql_content:
-            # Use regex to extract the {{ config(...) }} part of sql_content
-            config_macro_match = CONFIG_MACRO_PATTERN.search(sql_content)
-            config_macro_str = config_macro_match.group(0) if config_macro_match else ""
-
+    # Always use static parsing to handle configs with or without Jinja
+    config_macro_str = ""
+    config_source_map: Dict[str, str] = {}
+    original_sql_configs: Dict[str, Any] = {}
+    
+    if "config(" in sql_content:
+        # Extract the {{ config(...) }} part of sql_content
+        config_macro_match = CONFIG_MACRO_PATTERN.search(sql_content)
+        config_macro_str = config_macro_match.group(0) if config_macro_match else ""
+        
+        if config_macro_str:
+            # Use static parsing to get source code (handles Jinja without rendering)
             original_statically_parsed_config = statically_parse_unrendered_config(config_macro_str) or {}
-
-            template = get_template(config_macro_str, ctx=ctx, capture_macros=True)
-            render_template(template, ctx=ctx)
-
-        refactored_sql_configs = deepcopy(original_sql_configs)
-    except Exception:
-        # config() macro calls with jinja requiring dbt context will result in deepcopy error due to Undefined values
-        refactored_sql_configs = None
-        contains_jinja = True
-
-        if original_statically_parsed_config:
-            original_sql_configs = original_statically_parsed_config
+            
+            if original_statically_parsed_config:
+                # Use parsed config values as both data and source map
+                original_sql_configs = original_statically_parsed_config
+                config_source_map = original_statically_parsed_config.copy()
+    
+    if not original_sql_configs:
+        # No config found, return early
+        return SQLRuleRefactorResult(
+            rule_name="move_custom_configs_to_meta_sql",
+            refactored=False,
+            refactored_content=sql_content,
+            original_content=sql_content,
+            deprecation_refactors=[],
+        )
+    
+    refactored_sql_configs = deepcopy(original_sql_configs)
 
     moved_to_meta = []
     renamed_configs = []
-    for sql_config_key, sql_config_value in original_sql_configs.items():
-        # If the config key is not in the schema specs, move it to meta
-        allowed_config_fields = schema_specs.yaml_specs_per_node_type[node_type].allowed_config_fields
     
-        # Special casing snapshots because target_schema and target_database are renamed by another autofix rule
-        if node_type == "snapshots":
-            allowed_config_fields = allowed_config_fields.union({"target_schema", "target_database"})
+    allowed_config_fields = schema_specs.yaml_specs_per_node_type[node_type].allowed_config_fields
+    
+    # Special casing snapshots because target_schema and target_database are renamed by another autofix rule
+    if node_type == "snapshots":
+        allowed_config_fields = allowed_config_fields.union({"target_schema", "target_database"})
 
+    for sql_config_key, sql_config_value in original_sql_configs.items():
         if sql_config_key in COMMON_CONFIG_MISSPELLINGS:
+            # Config key is a common misspelling - rename it
             renamed_configs.append(sql_config_key)
-            if refactored_sql_configs is not None:
-                refactored_sql_configs[COMMON_CONFIG_MISSPELLINGS[sql_config_key]] = sql_config_value
-                del refactored_sql_configs[sql_config_key]
+            new_key = COMMON_CONFIG_MISSPELLINGS[sql_config_key]
+            refactored_sql_configs[new_key] = sql_config_value
+            del refactored_sql_configs[sql_config_key]
+            # Also update the source map
+            if sql_config_key in config_source_map:
+                config_source_map[new_key] = config_source_map[sql_config_key]
+                del config_source_map[sql_config_key]
         elif sql_config_key not in allowed_config_fields:
+            # Config key is not recognized - it's a custom config that should go in meta
             moved_to_meta.append(sql_config_key)
-            if refactored_sql_configs is not None:
-                if "meta" not in refactored_sql_configs:
-                    refactored_sql_configs["meta"] = {}
-                refactored_sql_configs["meta"].update({sql_config_key: sql_config_value})
-                del refactored_sql_configs[sql_config_key]
+            
+            # Get or create meta dict
+            if "meta" not in refactored_sql_configs:
+                meta_dict = {}
+            else:
+                # Meta already exists - parse it if it's a string
+                existing_meta = refactored_sql_configs["meta"]
+                if isinstance(existing_meta, str):
+                    # It's a source code string like "{'key': 'value'}" - parse it
+                    import ast
+                    try:
+                        parsed_meta = ast.literal_eval(existing_meta)
+                        meta_dict = {k: repr(v) if not isinstance(v, str) else f"'{v}'" 
+                                   for k, v in parsed_meta.items()}
+                    except (ValueError, SyntaxError):
+                        # Parsing failed, skip this meta (might contain Jinja)
+                        meta_dict = {}
+                else:
+                    meta_dict = existing_meta
+            
+            # Add the custom config to meta
+            meta_dict[sql_config_key] = sql_config_value
+            refactored_sql_configs["meta"] = meta_dict
+            del refactored_sql_configs[sql_config_key]
 
     # Update {{ config(...) }} macro call with new configs if any were moved to meta or renamed
     refactored_content = None
-    if refactored_sql_configs and refactored_sql_configs != original_sql_configs:
-        # Determine if jinja rendering occurred as part of config macro call
-        original_config_str = _serialize_config_macro_call(original_sql_configs)
-        post_render_statically_parsed_config = statically_parse_unrendered_config(f"{{{{ config({original_config_str}) }}}}")
-        if post_render_statically_parsed_config == original_statically_parsed_config:
-            refactored = True
-            for renamed_config in renamed_configs:
-                deprecation_refactors.append(
-                    DbtDeprecationRefactor(
-                        log=f"Config '{renamed_config}' is a common misspelling of '{COMMON_CONFIG_MISSPELLINGS[renamed_config]}', it has been renamed.",
-                        deprecation=DeprecationType.CUSTOM_KEY_IN_CONFIG_DEPRECATION
-                    )
-                )
-            if moved_to_meta:
-                deprecation_refactors.append(
-                    DbtDeprecationRefactor(
-                        log=f"Moved custom config{'s' if len(moved_to_meta) > 1 else ''} {moved_to_meta} to 'meta'",
-                        deprecation=DeprecationType.CUSTOM_KEY_IN_CONFIG_DEPRECATION
-                    )
-                )
-            new_config_str = _serialize_config_macro_call(refactored_sql_configs)
-            def replace_config(match):
-                return f"{{{{ config({new_config_str}\n) }}}}"
-            refactored_content = CONFIG_MACRO_PATTERN.sub(replace_config, sql_content, count=1)
-        else:
-            contains_jinja = True
+    refactored = False
     
-    if contains_jinja:
+    if refactored_sql_configs != original_sql_configs:
+        refactored = True
+        
+        # Generate deprecation refactors
+        for renamed_config in renamed_configs:
+            deprecation_refactors.append(
+                DbtDeprecationRefactor(
+                    log=f"Config '{renamed_config}' is a common misspelling of '{COMMON_CONFIG_MISSPELLINGS[renamed_config]}', it has been renamed.",
+                    deprecation=DeprecationType.CUSTOM_KEY_IN_CONFIG_DEPRECATION
+                )
+            )
+        
         if moved_to_meta:
-            refactor_warnings.append(
-                f"Detected custom config{'s' if len(moved_to_meta) > 1 else ''} {moved_to_meta}, "
-                f"but autofix was unable to refactor {'them' if len(moved_to_meta) > 1 else 'it'} due to Jinja usage in the config macro call.\n\t"
-                f"Please manually move the custom configs {moved_to_meta} to 'meta'.",
+            deprecation_refactors.append(
+                DbtDeprecationRefactor(
+                    log=f"Moved custom config{'s' if len(moved_to_meta) > 1 else ''} {moved_to_meta} to 'meta'",
+                    deprecation=DeprecationType.CUSTOM_KEY_IN_CONFIG_DEPRECATION
+                )
             )
-        if renamed_configs:
-            refactor_warnings.append(
-                f"Detected incorrect spelling of config{'s' if len(renamed_configs) > 1 else ''} {renamed_configs}, "
-                f"but autofix was unable to refactor {'them' if len(renamed_configs) > 1 else 'it'} due to Jinja usage in the config macro call.\n\t"
-                f"Please manually rename the custom configs {renamed_configs} to the correct spelling.",
-            )
+        
+        # Serialize the refactored config back to string
+        new_config_str = _serialize_config_macro_call(refactored_sql_configs, config_source_map)
+        
+        def replace_config(match):
+            return f"{{{{ config({new_config_str}\n) }}}}"
+        
+        refactored_content = CONFIG_MACRO_PATTERN.sub(replace_config, sql_content, count=1)
 
     return SQLRuleRefactorResult(
         rule_name="move_custom_configs_to_meta_sql",
@@ -237,14 +249,64 @@ def refactor_custom_configs_to_meta_sql(sql_content: str, schema_specs: SchemaSp
     )
 
 
-def _serialize_config_macro_call(config_dict: dict) -> str:
+def _serialize_config_macro_call(config_dict: dict, config_source_map: Optional[Dict[str, str]] = None) -> str:
+    """Serialize a config dictionary back to a config macro call string.
+    
+    Args:
+        config_dict: Dictionary of config keys and values
+        config_source_map: Optional dictionary mapping config keys to their original source code strings.
+                          Used to preserve Jinja expressions when serializing statically parsed configs.
+    """
+    if config_source_map is None:
+        config_source_map = {}
+    
     if any('-' in k for k in config_dict):
        return str(config_dict) 
     else:
         items = []
         for k, v in config_dict.items():
-            if isinstance(v, str):
-                v_str = f'"{v}"'
+            # If this is the meta key and it's a dict, serialize it specially
+            if k == "meta" and isinstance(v, dict):
+                meta_items = []
+                for meta_k, meta_v in v.items():
+                    # Use source map if available for individual meta keys (moved from top-level configs)
+                    # This preserves original source code including Jinja expressions
+                    if meta_k in config_source_map:
+                        meta_v_str = config_source_map[meta_k]
+                    elif isinstance(meta_v, str) and not (meta_v.startswith('"') or meta_v.startswith("'")):
+                        meta_v_str = f"'{meta_v}'"
+                    elif isinstance(meta_v, (dict, list)):
+                        # For nested structures, use repr to get proper Python syntax
+                        meta_v_str = repr(meta_v)
+                    else:
+                        meta_v_str = str(meta_v)
+                    meta_items.append(f"'{meta_k}': {meta_v_str}")
+                v_str = "{" + ", ".join(meta_items) + "}"
+            elif k in config_source_map:
+                # Use original source code to preserve Jinja expressions
+                # But convert simple string literals to double quotes to match expected format
+                source_value = config_source_map[k]
+                # Check if it's a simple quoted string (not a Jinja expression)
+                if (source_value.startswith("'") and source_value.endswith("'") or 
+                    source_value.startswith('"') and source_value.endswith('"')) and \
+                   not any(c in source_value for c in ['(', ')', '[', ']', '{', '}', '+', '-', '*', '/', '%']):
+                    # Simple string - convert to double quotes
+                    # Extract the content between quotes
+                    content = source_value[1:-1]
+                    v_str = f'"{content}"'
+                else:
+                    # Preserve original format for Jinja expressions
+                    v_str = source_value
+            elif isinstance(v, str):
+                # Check if it's already a string representation of an AST node
+                # (starts with a class name like "Keyword" or "Call")
+                if v.startswith(('Keyword', 'Call', 'Const', 'Name')):
+                    # This is an AST node string representation - try to use source map
+                    # If not available, we'll use the string as-is (not ideal but better than nothing)
+                    v_str = v
+                else:
+                    # Use double quotes for string values to match expected format
+                    v_str = f'"{v}"'
             else:
                 v_str = str(v)
             items.append(f"\n    {k}={v_str}")
