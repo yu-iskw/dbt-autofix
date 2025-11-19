@@ -33,14 +33,21 @@ def get_project_folders():
 
 
 def compare_dirs(dir1, dir2):
-    comparison = filecmp.dircmp(dir1, dir2)
+    # Ignore dbt build artifacts and other generated directories
+    ignore_dirs = {'dbt_internal_packages', 'logs', 'target', 'dbt_packages', '__pycache__'}
+    
+    comparison = filecmp.dircmp(dir1, dir2, ignore=list(ignore_dirs))
+
+    # Filter out ignored directories from left_only and right_only
+    left_only_filtered = [item for item in comparison.left_only if item not in ignore_dirs]
+    right_only_filtered = [item for item in comparison.right_only if item not in ignore_dirs]
 
     # Check for files that exist in only one directory
-    if comparison.left_only or comparison.right_only:
+    if left_only_filtered or right_only_filtered:
         pytest.fail(
             f"Files differ between {dir1} and {dir2}\n"
-            f"Only in actual: {comparison.left_only}\n"
-            f"Only in expected: {comparison.right_only}"
+            f"Only in actual: {left_only_filtered}\n"
+            f"Only in expected: {right_only_filtered}"
         )
 
     # Check for files that differ

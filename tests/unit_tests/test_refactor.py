@@ -23,7 +23,7 @@ from dbt_autofix.refactors.changesets.dbt_schema_yml import changeset_replace_fa
 from dbt_autofix.retrieve_schemas import SchemaSpecs
 
 from dbt_autofix.refactors.yml import dict_to_yaml_str
-from dbt_autofix.refactors.changesets.dbt_sql import CONFIG_MACRO_PATTERN
+from dbt_autofix.refactors.changesets.dbt_sql import CONFIG_MACRO_PATTERN, refactor_custom_configs_to_meta_sql
 from dbt_autofix.refactors.changesets.dbt_project_yml import rec_check_yaml_path
 
 
@@ -2048,4 +2048,87 @@ def test_config_regex(input_str, expected_match):
     else:
         assert match is not None
         assert match.group(0) == expected_match
+
+
+class TestRefactorCustomConfigsToMetaSQL:
+    """Tests for refactor_custom_configs_to_meta_sql function"""
+
+    def test_on_error_with_env_var_moved_to_meta(self, schema_specs: SchemaSpecs):
+        """Test that on_error config IS moved to meta even when env_var() is present (static analysis)"""
+        sql_content = """{{
+    config(
+        materialized=env_var("DBT_MAT_TABLE"),
+        tags=["smartsheet", "phi_resourcing"],
+        transient=true,
+        on_schema_change="sync_all_columns",
+        on_error='warn',
+    )
+}}
+
+select 1 as id
+"""
+        expected_content = """{{ config(
+    materialized=env_var("DBT_MAT_TABLE"), 
+    tags=["smartsheet", "phi_resourcing"], 
+    transient=true, 
+    on_schema_change="sync_all_columns", 
+    meta={'on_error': 'warn'}
+) }}
+
+select 1 as id
+"""
+        result = refactor_custom_configs_to_meta_sql(sql_content, schema_specs, "models")
+        
+        assert result.refactored
+        assert result.refactored_content == expected_content
+        assert len(result.deprecation_refactors) == 1
+        assert "on_error" in result.deprecation_refactors[0].log
+        assert "meta" in result.deprecation_refactors[0].log
+
+    def test_multiple_custom_configs_with_jinja_moved_to_meta(self, schema_specs: SchemaSpecs):
+        """Test that multiple custom configs ARE moved to meta even with Jinja (static analysis)"""
+        sql_content = """{{
+    config(
+        materialized=var("materialization"),
+        custom_config1='value1',
+        custom_config2=var("custom_var"),
+    )
+}}
+
+select 1 as id
+"""
+        expected_content = """{{ config(
+    materialized=var("materialization"), 
+    meta={'custom_config1': 'value1', 'custom_config2': var("custom_var")}
+) }}
+
+select 1 as id
+"""
+        result = refactor_custom_configs_to_meta_sql(sql_content, schema_specs, "models")
+        
+        assert result.refactored
+        assert result.refactored_content == expected_content
+        assert len(result.deprecation_refactors) == 1
+        assert "custom_config1" in result.deprecation_refactors[0].log
+        assert "custom_config2" in result.deprecation_refactors[0].log
+        assert "meta" in result.deprecation_refactors[0].log
+
+    def test_valid_configs_not_moved_to_meta(self, schema_specs: SchemaSpecs):
+        """Test that valid configs are not moved to meta (no custom configs present)"""
+        sql_content = """{{
+    config(
+        materialized=env_var("DBT_MAT_TABLE"),
+        tags=["tag1"],
+        transient=true,
+    )
+}}
+
+select 1 as id
+"""
+        result = refactor_custom_configs_to_meta_sql(sql_content, schema_specs, "models")
+        
+        # Should not refactor if no custom configs (all are valid)
+        assert not result.refactored
+        assert result.refactored_content == sql_content
+        assert len(result.deprecation_refactors) == 0
 
