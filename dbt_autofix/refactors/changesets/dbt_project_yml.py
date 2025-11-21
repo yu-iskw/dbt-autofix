@@ -96,7 +96,7 @@ def changeset_dbt_project_remove_deprecated_config(
     )
 
 def rec_check_yaml_path(
-    yml_dict: Dict[str, Any],
+    yml_dict: Any,
     path: Path,
     node_fields: DbtProjectSpecs,
     refactor_logs: Optional[List[str]] = None,
@@ -109,6 +109,12 @@ def rec_check_yaml_path(
     # Don't early return if path doesn't exist - we still need to process
     # logical groupings (YAML structure that doesn't correspond to directories)
     # The per-key check below (line 115) handles the actual file/dir validation
+
+    # Type guard: if yml_dict is not a dict, return it as-is
+    # This handles cases where config values are lists, ints, strings, bools, etc.
+    # For example: partition_by={'field': 'x', 'range': {...}}, cluster_by=['col1', 'col2']
+    if not isinstance(yml_dict, dict):
+        return yml_dict, [] if refactor_logs is None else refactor_logs
 
     yml_dict_copy = yml_dict.copy() if yml_dict else {}
     for k, v in yml_dict_copy.items():
@@ -150,6 +156,7 @@ def rec_check_yaml_path(
                 # Check if it's a valid config field
                 if key_without_plus in node_fields.allowed_config_fields_dbt_project:
                     # Valid config, keep as-is (value is the config value, not a grouping)
+                    # DO NOT recurse into the value - it's the config's value, not nested configs
                     pass
                 
                 # Unrecognized config (not in schema), move to +meta
@@ -165,9 +172,17 @@ def rec_check_yaml_path(
                     else:
                         refactor_logs.append(log_msg)
         
+        # Only recurse into dict values if the path exists (real directory/logical grouping)
+        # Do NOT recurse into values of valid config keys (like +persist_docs, +labels)
         elif isinstance(yml_dict[k], dict):
-            new_dict, refactor_logs = rec_check_yaml_path(yml_dict[k], path / k, node_fields, refactor_logs)
-            yml_dict[k] = new_dict
+            # Check if this is a valid config key - if so, its value is the config value, not nested configs
+            is_valid_config = (
+                k.startswith("+") and 
+                k[1:] in node_fields.allowed_config_fields_dbt_project
+            )
+            if not is_valid_config:
+                new_dict, refactor_logs = rec_check_yaml_path(yml_dict[k], path / k, node_fields, refactor_logs)
+                yml_dict[k] = new_dict
     return yml_dict, [] if refactor_logs is None else refactor_logs
 
 def _path_exists_as_file(path: Path) -> bool:
@@ -185,24 +200,34 @@ def changeset_dbt_project_prefix_plus_for_config(
         for k, v in (yml_dict.get(node_type) or {}).copy().items():
             # check if this is the project name
             if k == yml_dict["name"]:
-                new_dict, refactor_logs = rec_check_yaml_path(v, path / node_type, node_fields)
-                yml_dict[node_type][k] = new_dict
-                all_refactor_logs.extend(refactor_logs)
+                # Only recurse if v is a dict (should be project configs)
+                if isinstance(v, dict):
+                    new_dict, refactor_logs = rec_check_yaml_path(v, path / node_type, node_fields)
+                    yml_dict[node_type][k] = new_dict
+                    all_refactor_logs.extend(refactor_logs)
+                # else: non-dict value, keep as-is (unusual but possible)
 
-            # top level config
-            elif k in node_fields.allowed_config_fields_dbt_project:
-                all_refactor_logs.append(f"Added '+' in front of top level config '{k}'")
-                new_k = f"+{k}"
-                yml_dict[node_type][new_k] = v
-                del yml_dict[node_type][k]
+            # top level config (with or without + prefix)
+            elif k in node_fields.allowed_config_fields_dbt_project or \
+                 (k.startswith("+") and k[1:] in node_fields.allowed_config_fields_dbt_project):
+                # Config key is valid - if it doesn't have +, add it
+                if not k.startswith("+"):
+                    all_refactor_logs.append(f"Added '+' in front of top level config '{k}'")
+                    new_k = f"+{k}"
+                    yml_dict[node_type][new_k] = v
+                    del yml_dict[node_type][k]
+                # else: already has +, keep as-is, value is the config value (don't recurse)
 
-            # otherwise, treat it as a package
+            # otherwise, treat it as a package or logical grouping
             # TODO: if this is not valid, we could delete it as well
             else:
                 packages_path = path / Path(yml_dict.get("packages-paths", "dbt_packages"))
-                new_dict, refactor_logs = rec_check_yaml_path(v, packages_path / k / node_type, node_fields)
-                yml_dict[node_type][k] = new_dict
-                all_refactor_logs.extend(refactor_logs)
+                # Only recurse if v is a dict (should be package configs or logical grouping)
+                if isinstance(v, dict):
+                    new_dict, refactor_logs = rec_check_yaml_path(v, packages_path / k / node_type, node_fields)
+                    yml_dict[node_type][k] = new_dict
+                    all_refactor_logs.extend(refactor_logs)
+                # else: non-dict value, keep as-is (unusual but possible)
 
     refactored = len(all_refactor_logs) > 0
     deprecation_refactors = [
