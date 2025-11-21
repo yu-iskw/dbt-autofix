@@ -1,12 +1,11 @@
-from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, Optional, Union
 from rich.console import Console
 import yaml
 
-from dbt_autofix.packages.dbt_package import DbtPackage
-from dbt_autofix.packages.dbt_package_version import DbtPackageVersion, get_versions
-from dbt_autofix.refactors.yml import DbtYAML, read_file
+from dbt_autofix.packages.dbt_package_version import DbtPackageVersion
+from dbt_autofix.refactors.yml import read_file
 
 console = Console()
 
@@ -14,10 +13,35 @@ console = Console()
 # and construct DbtPackageVersions from the package's dbt_project.yml
 
 
+def find_packages_within_directory(installed_packages_dir: Union[Path, str]) -> list[Path]:
+    if type(installed_packages_dir) == str:
+        installed_packages_path = Path(installed_packages_dir)
+    elif isinstance(installed_packages_dir, Path): 
+        installed_packages_path = installed_packages_dir
+    else:
+        return []
+    if not installed_packages_path.exists() or not installed_packages_path.is_dir():
+        return []
+
+    # we only go one level deep here to avoid parsing the dependencies of dependnecies
+    yml_files_packages = set((installed_packages_path).glob("*/*.yml")).union(
+        set((installed_packages_path).glob("*/*.yaml"))
+    )
+
+    # this is a hack to avoid checking integration_tests. it won't work everywhere but it's good enough for now
+    yml_files_packages_integration_tests = set((installed_packages_path).glob("**/integration_tests/**/*.yml")).union(
+        set((installed_packages_path).glob("**/integration_tests/**/*.yaml"))
+    )
+    yml_files_packages_not_integration_tests = yml_files_packages - yml_files_packages_integration_tests
+
+    return [Path(str(path)) for path in yml_files_packages_not_integration_tests if path.name == "dbt_project.yml"]
+
+
 def find_package_paths(
     root_dir: Path,
 ) -> list[Path]:
-    """
+    """Find paths to installed packages' dbt_project.yml files.
+
     Find each installed package's root directory and return the file paths
     for each package's dbt_project.yml
     Note that this only returns paths for direct dependencies of the project.
@@ -32,22 +56,25 @@ def find_package_paths(
         "packages-install-path", "dbt_packages"
     )
 
-    # we only go one level deep here to avoid parsing the dependencies of dependnecies
-    yml_files_packages = set((root_dir / packages_path).glob("*/*.yml")).union(
-        set((root_dir / packages_path).glob("*/*.yaml"))
-    )
+    # check package path from project or default package path first
+    installed_packages = find_packages_within_directory((root_dir / packages_path))
 
-    # this is a hack to avoid checking integration_tests. it won't work everywhere but it's good enough for now
-    yml_files_packages_integration_tests = set((root_dir / packages_path).glob("**/integration_tests/**/*.yml")).union(
-        set((root_dir / packages_path).glob("**/integration_tests/**/*.yaml"))
-    )
-    yml_files_packages_not_integration_tests = yml_files_packages - yml_files_packages_integration_tests
+    # if we don't find any, fall back to default package directory
+    if len(installed_packages) == 0:
+        installed_packages = find_packages_within_directory((root_dir / "dbt_packages"))
+    
+    # if still don't have any, check for env var
+    if len(installed_packages) == 0:
+        package_dir_envvar = os.getenv("DBT_PACKAGES_INSTALL_PATH")
+        if package_dir_envvar is not None:
+            installed_packages = find_packages_within_directory((package_dir_envvar))
 
-    return [Path(str(path)) for path in yml_files_packages_not_integration_tests if path.name == "dbt_project.yml"]
+    return installed_packages
 
 
 def load_yaml_from_package_dbt_project_yml_path(package_project_yml_path: Path) -> dict[Any, Any]:
-    """
+    """Extracts YAML content from a package's dbt_project.yml file.
+
     Parses a dbt_project.yml file for an installed package into an untyped dict
 
     Args:
@@ -56,7 +83,7 @@ def load_yaml_from_package_dbt_project_yml_path(package_project_yml_path: Path) 
     Returns:
         dict[Any, Any]: the result produced by the YAML parser
     """
-    
+
     if package_project_yml_path.name != "dbt_project.yml":
         console.log("File must be dbt_project.yml")
         return {}
@@ -73,7 +100,8 @@ def load_yaml_from_package_dbt_project_yml_path(package_project_yml_path: Path) 
 
 
 def parse_package_info_from_package_dbt_project_yml(parsed_package_file: dict[Any, Any]) -> Optional[DbtPackageVersion]:
-    """
+    """Extracts package info from a dict parsed from a package's dbt_project.yml.
+
     Constructs a DbtPackageVersion by extracting required attributes from the dict
     containing the output from a package's parsed dbt_project.yml.
 
@@ -96,19 +124,20 @@ def parse_package_info_from_package_dbt_project_yml(parsed_package_file: dict[An
         return
 
     if "require-dbt-version" in parsed_package_file:
-        require_dbt_version = get_versions(parsed_package_file["require-dbt-version"])
+        require_dbt_version_raw: Any = parsed_package_file["require-dbt-version"]
     else:
-        require_dbt_version = []
+        require_dbt_version_raw = None
 
     installed_package_version = DbtPackageVersion(
-        package_name=package_name, package_version_str=version, require_dbt_version_range=require_dbt_version
+        package_name=package_name, package_version_str=version, raw_require_dbt_version_range=require_dbt_version_raw
     )
 
     return installed_package_version
 
 
 def get_current_installed_package_versions(root_dir: Path) -> dict[str, DbtPackageVersion]:
-    """
+    """Extract version metadata for all installed packages in a project.
+
     Finds all installed packages from a project's root directory and
     constructs DbtPackageVersions for each project.
 
@@ -134,4 +163,3 @@ def get_current_installed_package_versions(root_dir: Path) -> dict[str, DbtPacka
             console.log(f"Package name {package_name} already installed")
         installed_package_versions[package_name] = package_info
     return installed_package_versions
-

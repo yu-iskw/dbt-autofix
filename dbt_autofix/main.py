@@ -1,5 +1,6 @@
 import json
 from importlib.metadata import version
+import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -45,42 +46,45 @@ def identify_duplicate_keys(
     print_duplicate_keys(project_duplicates, package_duplicates)
 
 
-@app.command(name="upgrade-packages")
+@app.command(name="packages")
 def upgrade_packages(
     path: Annotated[Path, typer.Option("--path", "-p", help="The path to the dbt project")] = current_dir,
     dry_run: Annotated[bool, typer.Option("--dry-run", "-d", help="In dry run mode, do not apply changes")] = False,
     json_output: Annotated[bool, typer.Option("--json", "-j", help="Output in JSON format")] = False,
+    force_upgrade: Annotated[
+        bool,
+        typer.Option(
+            "--force-upgrade", "-f", help="Override package version config when upgrading to Fusion-compatible versions"
+        ),
+    ] = False,
 ):
-    # TODO: remove this when full package upgrade is available
-    print("[yellow]This command is still under development and will only operate in dry-run mode[/yellow]\n")
-    dry_run = True
-
-    print(f"[green]Identifying packages with available upgrades in {path}[/green]\n")
-    deps_file: Optional[DbtPackageFile] = generate_package_dependencies(path)
-    if not deps_file:
-        error_console.print("[red]-- No package dependency config found --[/red]")
+    if not path.is_dir() or not path.exists():
+        error_console.print("[red]-- The directory specified in --path does not exist --[/red]")
         return
 
-    if len(deps_file.package_dependencies) == 0:
-        error_console.print("[red]-- No package dependencies found --[/red]")
-        return
+    console.print(f"[green]Identifying packages with available upgrades in {path}[/green]\n")
+    try:
+        deps_file: Optional[DbtPackageFile] = generate_package_dependencies(path)
+        if not deps_file:
+            error_console.print("[red]-- No package dependency config found --[/red]")
+            return
 
-    package_upgrades: list[PackageVersionUpgradeResult] = check_for_package_upgrades(deps_file)
+        if len(deps_file.package_dependencies) == 0:
+            error_console.print("[red]-- No package dependencies found --[/red]")
+            return
 
-    if dry_run:
-        if not json_output:
-            error_console.print("[red]-- Dry run mode, not applying changes --[/red]")
-        upgrade_result = PackageUpgradeResult(
-            dry_run=True,
-            file_path=deps_file.file_path if deps_file.file_path else path,
-            upgraded=False,
-            upgrades=[],
-            unchanged=package_upgrades,
+        package_upgrades: list[PackageVersionUpgradeResult] = check_for_package_upgrades(deps_file)
+
+        packages_upgraded: PackageUpgradeResult = upgrade_package_versions(
+            deps_file=deps_file,
+            package_dependencies_with_upgrades=package_upgrades,
+            dry_run=dry_run,
+            override_pinned_version=force_upgrade,
+            json_output=json_output,
         )
-        upgrade_result.print_to_console(json_output=True)
-    else:
-        upgrade_package_versions(package_upgrades, json_output)
-
+        packages_upgraded.print_to_console(json_output=json_output)
+    except:
+        error_console.print("[red]-- Package upgrade failed, please check logs for details --[/red]")
     if json_output:
         print(json.dumps({"mode": "complete"}))  # noqa: T201
 

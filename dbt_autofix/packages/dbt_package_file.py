@@ -1,10 +1,17 @@
+from collections import defaultdict
 from typing import Any, Optional
 from dbt_autofix.packages.dbt_package import DbtPackage
-from dbt_autofix.packages.dbt_package_version import DbtPackageVersion
+from dbt_autofix.packages.dbt_package_version import (
+    DbtPackageVersion,
+    convert_optional_version_string_to_spec,
+    convert_version_string_list_to_spec,
+)
 from dataclasses import dataclass, field
 from pathlib import Path
 from rich.console import Console
+from dbt_autofix.packages.upgrade_status import PackageVersionFusionCompatibilityState, PackageFusionCompatibilityState
 from dbt_autofix.refactors.yml import read_file
+from dbt_autofix.packages.fusion_version_compatibility_output import FUSION_VERSION_COMPATIBILITY_OUTPUT
 
 console = Console()
 
@@ -15,7 +22,8 @@ VALID_PACKAGE_YML_NAMES: set[str] = set(["packages.yml", "dependencies.yml"])
 def find_package_yml_files(
     root_dir: Path,
 ) -> list[Path]:
-    """
+    """Get file paths for YML files that define package dependencies.
+
     Find YML files that define package dependencies for the project
     (packages.yml and dependencies.yml).
 
@@ -39,8 +47,7 @@ def find_package_yml_files(
 
 
 def load_yaml_from_packages_yml(packages_yml_path: Path) -> dict[Any, Any]:
-    """
-    Parse YAML from a packages.yml file
+    """Parse YAML from a packages.yml file.
 
     Args:
         packages_yml_path (Path): file path for packages.yml
@@ -83,6 +90,7 @@ def load_yaml_from_packages_yml(packages_yml_path: Path) -> dict[Any, Any]:
 
 # Same as load_yaml_from_packages_yml
 def load_yaml_from_dependencies_yml(dependencies_yml_path: Path) -> dict[Any, Any]:
+    """Same as `load_yaml_from_packages_yml` but dependencies.yml"""
     if dependencies_yml_path.name != "dependencies.yml":
         console.log("File must be dependencies.yml")
         return {}
@@ -156,6 +164,71 @@ class DbtPackageFile:
                 installed_count += 1
         return installed_count
 
+    def merge_fusion_compatibility_output(self) -> int:
+        package_compat_count = 0
+        for package in self.package_dependencies:
+            output = FUSION_VERSION_COMPATIBILITY_OUTPUT.get(package)
+            if output is None:
+                continue
+            oldest_fusion_compatible_version = convert_optional_version_string_to_spec(
+                output["oldest_fusion_compatible_version"]
+            )
+            # latest_fusion_compatible_version = convert_optional_version_string_to_spec(output["latest_fusion_compatible_version"])
+            fusion_compatible_versions = convert_version_string_list_to_spec(output["fusion_compatible_versions"])
+            fusion_incompatible_versions = convert_version_string_list_to_spec(output["fusion_incompatible_versions"])
+            unknown_compatibility_versions = convert_version_string_list_to_spec(
+                output["unknown_compatibility_versions"]
+            )
+            self.package_dependencies[package].lowest_fusion_compatible_version = oldest_fusion_compatible_version
+            # self.package_dependencies[package].latest_fusion_compatible_version = latest_fusion_compatible_version
+            self.package_dependencies[package].fusion_compatible_versions = fusion_compatible_versions
+            self.package_dependencies[package].fusion_incompatible_versions = fusion_incompatible_versions
+            self.package_dependencies[package].unknown_compatibility_versions = unknown_compatibility_versions
+            package_compat_count += 1
+        return package_compat_count
+
+    def get_private_package_names(self) -> list[str]:
+        return [
+            package for package in self.package_dependencies if not self.package_dependencies[package].is_public_package()
+        ]
+
+    def get_installed_version_fusion_compatible(self) -> list[str]:
+        """List packages where the installed version is already compatible with Fusion.
+
+        A version is Fusion compatible if `is_installed_version_fusion_compatible()`
+        on the package returns EXPLICIT_ALLOW or DBT_VERSION_RANGE_INCLUDES_2_0.
+
+        Returns:
+            list[str]: package IDs
+        """
+        package_names = []
+        for package in self.package_dependencies:
+            installed_version_compatibility: PackageVersionFusionCompatibilityState = self.package_dependencies[
+                package
+            ].is_installed_version_fusion_compatible()
+            if (
+                installed_version_compatibility == PackageVersionFusionCompatibilityState.EXPLICIT_ALLOW
+                or installed_version_compatibility
+                == PackageVersionFusionCompatibilityState.DBT_VERSION_RANGE_INCLUDES_2_0
+            ):
+                package_names.append(package)
+        return package_names
+
+    def get_package_fusion_compatibility(self) -> dict[PackageFusionCompatibilityState, set[str]]:
+        """Get Fusion compatibility status for all packages in file.
+
+        The package's compatibility state is returned by `get_package_fusion_compatibility_state`.
+        All packages in the file will fall into exactly one of the compatibility states.
+
+        Returns:
+            dict[PackageFusionCompatibilityState, list[str]]: list of package names in each state
+        """
+        compatibility: dict[PackageFusionCompatibilityState, set[str]] = defaultdict(set)
+        for package in self.package_dependencies:
+            fusion_compatibility = self.package_dependencies[package].get_package_fusion_compatibility_state()
+            compatibility[fusion_compatibility].add(package)
+        return compatibility
+
 
 def parse_package_dependencies_from_yml(
     parsed_yml: dict[Any, Any], package_file_name: str, package_file_path: Optional[Path]
@@ -170,7 +243,14 @@ def parse_package_dependencies_from_yml(
     )
     for idx, package in enumerate(package_dict):
         if "package" not in package:
-            package_id = f"package_{idx}"
+            if "private" in package:
+                package_id = package["private"]
+            elif "local" in package:
+                package_id = package["local"]
+            elif "git" in package:
+                package_id = package["git"]
+            else:
+                package_id = f"package_{idx}"
         else:
             package_id: str = str(package["package"])
         package_name: str = package_id.split("/")[-1]
@@ -178,15 +258,18 @@ def parse_package_dependencies_from_yml(
         local: bool = "local" in package
         git: bool = "git" in package
         tarball = "tarball" in package
+        private: bool = "private" in package
         new_package = DbtPackage(
             package_name=package_name,
             package_id=package_id,
             local=local,
             git=git,
             tarball=tarball,
+            private=private,
             project_config_raw_version_specifier=version,
         )
         package_file.add_package_dependency(package_id, new_package)
+    package_file.merge_fusion_compatibility_output()
 
     return package_file
 
@@ -203,10 +286,3 @@ def parse_package_dependencies_from_dependencies_yml(
     parsed_dependencies_yml: dict[Any, Any], package_file_path: Optional[Path]
 ) -> Optional[DbtPackageFile]:
     return parse_package_dependencies_from_yml(parsed_dependencies_yml, "dependencies.yml", package_file_path)
-
-
-def merge_installed_version_with_deps(deps_file: DbtPackageFile, installed_packages: dict[str, DbtPackageVersion]):
-    package_lookup = deps_file.get_reverse_lookup_by_package_name()
-    for package in installed_packages:
-        package_id = package_lookup[package]
-        deps_file.set_installed_version_for_package(package_id, installed_packages[package])
