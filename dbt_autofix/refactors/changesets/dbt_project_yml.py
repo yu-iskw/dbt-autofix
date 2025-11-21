@@ -106,32 +106,65 @@ def rec_check_yaml_path(
     # TODO: what about individual models in the config there?
     # indivdual models would show up here but without the `.sql` (or `.py`)
 
-    if not path.exists() and not _path_exists_as_file(path):
-        return yml_dict, [] if refactor_logs is None else refactor_logs
+    # Don't early return if path doesn't exist - we still need to process
+    # logical groupings (YAML structure that doesn't correspond to directories)
+    # The per-key check below (line 115) handles the actual file/dir validation
 
     yml_dict_copy = yml_dict.copy() if yml_dict else {}
     for k, v in yml_dict_copy.items():
         log_msg = None
         if not (path / k).exists() and not _path_exists_as_file(path / k):
-            # Built-in config missing "+"
-            if k in node_fields.allowed_config_fields_dbt_project:
-                new_k = f"+{k}"
-                yml_dict[new_k] = v
-                log_msg = f"Added '+' in front of the nested config '{k}'"
-            # Custom config not in meta
-            elif not k.startswith("+"):
-                log_msg = f"Moved custom config '{k}' to '+meta'"
-                meta = yml_dict.get("+meta", {})
-                meta.update({k: v})
-                yml_dict["+meta"] = meta
-            
-            if log_msg:
-                if refactor_logs is None:
-                    refactor_logs = [log_msg]
+            # Case 1: Key doesn't have "+" prefix
+            if not k.startswith("+"):
+                # Built-in config missing "+"
+                if k in node_fields.allowed_config_fields_dbt_project:
+                    new_k = f"+{k}"
+                    yml_dict[new_k] = v
+                    log_msg = f"Added '+' in front of the nested config '{k}'"
+                # Check if this is a dict value (logical grouping)
+                # Only recurse if it's NOT a valid config key
+                elif isinstance(v, dict):
+                    # This is a logical grouping (subdirectory-like structure in YAML)
+                    # Recurse into it to process nested configs
+                    new_dict, refactor_logs = rec_check_yaml_path(v, path / k, node_fields, refactor_logs)
+                    yml_dict[k] = new_dict
+                # Custom config not in meta (leaf value)
                 else:
-                    refactor_logs.append(log_msg)
+                    log_msg = f"Moved custom config '{k}' to '+meta'"
+                    meta = yml_dict.get("+meta", {})
+                    meta.update({k: v})
+                    yml_dict["+meta"] = meta
+                
+                if log_msg:
+                    if refactor_logs is None:
+                        refactor_logs = [log_msg]
+                    else:
+                        refactor_logs.append(log_msg)
+                
+                    del yml_dict[k]
             
-                del yml_dict[k]
+            # Case 2: Key already has "+" prefix - validate it
+            else:
+                key_without_plus = k[1:]  # Remove the + prefix
+                
+                # Check if it's a valid config field
+                if key_without_plus in node_fields.allowed_config_fields_dbt_project:
+                    # Valid config, keep as-is (value is the config value, not a grouping)
+                    pass
+                
+                # Unrecognized config (not in schema), move to +meta
+                else:
+                    log_msg = f"Moved unrecognized config '{k}' to '+meta'"
+                    meta = yml_dict.get("+meta", {})
+                    meta.update({key_without_plus: v})
+                    yml_dict["+meta"] = meta
+                    del yml_dict[k]
+                    
+                    if refactor_logs is None:
+                        refactor_logs = [log_msg]
+                    else:
+                        refactor_logs.append(log_msg)
+        
         elif isinstance(yml_dict[k], dict):
             new_dict, refactor_logs = rec_check_yaml_path(yml_dict[k], path / k, node_fields, refactor_logs)
             yml_dict[k] = new_dict
