@@ -113,25 +113,50 @@ def rec_check_yaml_path(
     for k, v in yml_dict_copy.items():
         log_msg = None
         if not (path / k).exists() and not _path_exists_as_file(path / k):
-            # Built-in config missing "+"
-            if k in node_fields.allowed_config_fields_dbt_project:
-                new_k = f"+{k}"
-                yml_dict[new_k] = v
-                log_msg = f"Added '+' in front of the nested config '{k}'"
-            # Custom config not in meta
-            elif not k.startswith("+"):
-                log_msg = f"Moved custom config '{k}' to '+meta'"
-                meta = yml_dict.get("+meta", {})
-                meta.update({k: v})
-                yml_dict["+meta"] = meta
-            
-            if log_msg:
-                if refactor_logs is None:
-                    refactor_logs = [log_msg]
+            # Case 1: Key doesn't have "+" prefix
+            if not k.startswith("+"):
+                # Built-in config missing "+"
+                if k in node_fields.allowed_config_fields_dbt_project:
+                    new_k = f"+{k}"
+                    yml_dict[new_k] = v
+                    log_msg = f"Added '+' in front of the nested config '{k}'"
+                # Custom config not in meta
                 else:
-                    refactor_logs.append(log_msg)
+                    log_msg = f"Moved custom config '{k}' to '+meta'"
+                    meta = yml_dict.get("+meta", {})
+                    meta.update({k: v})
+                    yml_dict["+meta"] = meta
+                
+                if log_msg:
+                    if refactor_logs is None:
+                        refactor_logs = [log_msg]
+                    else:
+                        refactor_logs.append(log_msg)
+                
+                    del yml_dict[k]
             
-                del yml_dict[k]
+            # Case 2: Key already has "+" prefix - validate it
+            else:
+                key_without_plus = k[1:]  # Remove the + prefix
+                
+                # Check if it's a valid config field
+                if key_without_plus in node_fields.allowed_config_fields_dbt_project:
+                    # Valid config, keep as-is
+                    pass
+                
+                # Unrecognized config (not in schema), move to +meta
+                else:
+                    log_msg = f"Moved unrecognized config '{k}' to '+meta'"
+                    meta = yml_dict.get("+meta", {})
+                    meta.update({key_without_plus: v})
+                    yml_dict["+meta"] = meta
+                    del yml_dict[k]
+                    
+                    if refactor_logs is None:
+                        refactor_logs = [log_msg]
+                    else:
+                        refactor_logs.append(log_msg)
+        
         elif isinstance(yml_dict[k], dict):
             new_dict, refactor_logs = rec_check_yaml_path(yml_dict[k], path / k, node_fields, refactor_logs)
             yml_dict[k] = new_dict
