@@ -106,8 +106,9 @@ def rec_check_yaml_path(
     # TODO: what about individual models in the config there?
     # indivdual models would show up here but without the `.sql` (or `.py`)
 
-    if not path.exists() and not _path_exists_as_file(path):
-        return yml_dict, [] if refactor_logs is None else refactor_logs
+    # Don't early return if path doesn't exist - we still need to process
+    # logical groupings (YAML structure that doesn't correspond to directories)
+    # The per-key check below (line 115) handles the actual file/dir validation
 
     yml_dict_copy = yml_dict.copy() if yml_dict else {}
     for k, v in yml_dict_copy.items():
@@ -120,7 +121,14 @@ def rec_check_yaml_path(
                     new_k = f"+{k}"
                     yml_dict[new_k] = v
                     log_msg = f"Added '+' in front of the nested config '{k}'"
-                # Custom config not in meta
+                # Check if this is a dict value (logical grouping)
+                # Only recurse if it's NOT a valid config key
+                elif isinstance(v, dict):
+                    # This is a logical grouping (subdirectory-like structure in YAML)
+                    # Recurse into it to process nested configs
+                    new_dict, refactor_logs = rec_check_yaml_path(v, path / k, node_fields, refactor_logs)
+                    yml_dict[k] = new_dict
+                # Custom config not in meta (leaf value)
                 else:
                     log_msg = f"Moved custom config '{k}' to '+meta'"
                     meta = yml_dict.get("+meta", {})
@@ -141,7 +149,7 @@ def rec_check_yaml_path(
                 
                 # Check if it's a valid config field
                 if key_without_plus in node_fields.allowed_config_fields_dbt_project:
-                    # Valid config, keep as-is
+                    # Valid config, keep as-is (value is the config value, not a grouping)
                     pass
                 
                 # Unrecognized config (not in schema), move to +meta

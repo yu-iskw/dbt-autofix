@@ -444,6 +444,234 @@ def test_jinja_in_hook_values_preserved(models_node_fields, temp_path):
 
 
 # =============================================================================
+# SCENARIO 7: Nested configs under logical groupings (non-existent directories)
+# =============================================================================
+
+def test_nested_config_under_logical_grouping(models_node_fields, temp_path):
+    """
+    INPUT:  Logical grouping 'example' (doesn't exist as directory) with nested configs
+    OUTPUT: Grouping preserved, nested configs get + prefix
+    WHY:    Logical groupings in YAML should be recursed into, not moved to meta
+    
+    This is the bug from the user's question - materialized wasn't getting +
+    """
+    input_dict = {
+        'example': {
+            'materialized': 'view'
+        }
+    }
+    
+    expected_output = {
+        'example': {
+            '+materialized': 'view'
+        }
+    }
+    
+    result, logs = rec_check_yaml_path(input_dict, temp_path, models_node_fields)
+    
+    assert result == expected_output
+    assert len(logs) == 1
+    assert 'materialized' in logs[0]
+
+
+def test_multiple_nested_configs_under_logical_grouping(models_node_fields, temp_path):
+    """
+    INPUT:  Logical grouping with multiple nested configs
+    OUTPUT: All nested configs get + prefix
+    WHY:    All valid configs in a logical grouping need + prefix
+    """
+    input_dict = {
+        'example': {
+            'materialized': 'view',
+            'schema': 'analytics',
+            'enabled': True
+        }
+    }
+    
+    expected_output = {
+        'example': {
+            '+materialized': 'view',
+            '+schema': 'analytics',
+            '+enabled': True
+        }
+    }
+    
+    result, logs = rec_check_yaml_path(input_dict, temp_path, models_node_fields)
+    
+    assert result == expected_output
+    assert len(logs) == 3
+
+
+def test_deeply_nested_logical_groupings(models_node_fields, temp_path):
+    """
+    INPUT:  Multiple levels of logical groupings
+    OUTPUT: Configs at all levels get + prefix
+    WHY:    Recursion should work at any depth
+    """
+    input_dict = {
+        'external_views': {
+            'example': {
+                'materialized': 'view',
+                'schema': 'analytics'
+            }
+        }
+    }
+    
+    expected_output = {
+        'external_views': {
+            'example': {
+                '+materialized': 'view',
+                '+schema': 'analytics'
+            }
+        }
+    }
+    
+    result, logs = rec_check_yaml_path(input_dict, temp_path, models_node_fields)
+    
+    assert result == expected_output
+    assert len(logs) == 2
+
+
+def test_users_exact_scenario_from_question(models_node_fields, temp_path):
+    """
+    INPUT:  The exact structure from the user's question
+    OUTPUT: materialized gets + prefix
+    WHY:    This is the bug that was reported
+    
+    User's YAML:
+    models:
+      external_views:
+        example:
+          materialized: view
+        schema: external_analytics
+    """
+    input_dict = {
+        'external_views': {
+            'example': {
+                'materialized': 'view'
+            },
+            'schema': 'external_analytics'
+        }
+    }
+    
+    expected_output = {
+        'external_views': {
+            'example': {
+                '+materialized': 'view'
+            },
+            '+schema': 'external_analytics'
+        }
+    }
+    
+    result, logs = rec_check_yaml_path(input_dict, temp_path, models_node_fields)
+    
+    assert result == expected_output
+    assert len(logs) == 2
+
+
+def test_nested_custom_configs_in_logical_grouping(models_node_fields, temp_path):
+    """
+    INPUT:  Logical grouping with custom (invalid) configs
+    OUTPUT: Custom configs moved to +meta at the right level
+    WHY:    Custom configs should still move to meta, even in nested groupings
+    """
+    input_dict = {
+        'example': {
+            'materialized': 'view',
+            'custom_unknown': 'value'
+        }
+    }
+    
+    expected_output = {
+        'example': {
+            '+materialized': 'view',
+            '+meta': {
+                'custom_unknown': 'value'
+            }
+        }
+    }
+    
+    result, logs = rec_check_yaml_path(input_dict, temp_path, models_node_fields)
+    
+    assert result == expected_output
+    assert len(logs) == 2  # One for materialized +, one for moving custom to meta
+
+
+def test_mixed_logical_groupings_and_configs(models_node_fields, temp_path):
+    """
+    INPUT:  Top-level configs mixed with logical groupings
+    OUTPUT: Both handled correctly
+    WHY:    Real projects have configs at multiple levels
+    """
+    input_dict = {
+        'materialized': 'table',  # Top-level config
+        'example': {              # Logical grouping
+            'materialized': 'view',
+            'enabled': False
+        }
+    }
+    
+    expected_output = {
+        '+materialized': 'table',
+        'example': {
+            '+materialized': 'view',
+            '+enabled': False
+        }
+    }
+    
+    result, logs = rec_check_yaml_path(input_dict, temp_path, models_node_fields)
+    
+    assert result == expected_output
+    assert len(logs) == 3
+
+
+def test_logical_grouping_with_already_prefixed_configs(models_node_fields, temp_path):
+    """
+    INPUT:  Logical grouping where some configs already have +
+    OUTPUT: Already prefixed configs unchanged, others get +
+    WHY:    Partial migrations should work correctly
+    """
+    input_dict = {
+        'example': {
+            '+materialized': 'view',  # Already has +
+            'schema': 'analytics'      # Missing +
+        }
+    }
+    
+    expected_output = {
+        'example': {
+            '+materialized': 'view',
+            '+schema': 'analytics'
+        }
+    }
+    
+    result, logs = rec_check_yaml_path(input_dict, temp_path, models_node_fields)
+    
+    assert result == expected_output
+    assert len(logs) == 1  # Only schema needs fixing
+
+
+def test_empty_logical_grouping(models_node_fields, temp_path):
+    """
+    INPUT:  Logical grouping with empty dict
+    OUTPUT: Empty dict preserved
+    WHY:    Edge case - empty groupings should work
+    """
+    input_dict = {
+        'example': {}
+    }
+    
+    expected_output = {
+        'example': {}
+    }
+    
+    result, logs = rec_check_yaml_path(input_dict, temp_path, models_node_fields)
+    
+    assert result == expected_output
+    assert len(logs) == 0
+
+
+# =============================================================================
 # Quick reference table (as docstring)
 # =============================================================================
 
