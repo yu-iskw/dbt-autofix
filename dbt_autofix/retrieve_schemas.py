@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -32,6 +32,9 @@ class SchemaSpecs:
         self.yaml_specs_per_node_type, self.dbtproject_specs_per_node_type, self.valid_top_level_yaml_fields = self._get_specs(version)
         self.owner_properties = ["name", "email"]
         self.nodes_with_owner = ["groups", "exposures"]
+        # Cache dict config analysis
+        self._dict_config_cache = None
+        self._schema_version = version
 
     def _get_specs(self, version: Optional[str] = None) -> tuple[dict[str, YAMLSpecs], dict[str, DbtProjectSpecs], list[str]]:
         if os.getenv("DEBUG"):
@@ -227,6 +230,71 @@ class SchemaSpecs:
     def _get_dbt_project_schema_fields(self, yml_schema: dict, node_type: str) -> str:
         property_field_name = yml_schema["properties"][node_type]["anyOf"][0]["$ref"].split("/")[-1]
         return property_field_name
+
+    def get_dict_config_analysis(self) -> dict[str, Any]:
+        """Get analysis of which dict configs have specific properties vs accept any key-value pairs.
+
+        Returns:
+            dict with two keys:
+                - 'specific_properties': dict mapping config name to its allowed properties
+                - 'open_ended': set of config names that accept any key-value pairs
+        """
+        if self._dict_config_cache is None:
+            # Get the schema
+            version = self._schema_version or get_fusion_latest_version(self.disable_ssl_verification)
+            schema = get_fusion_dbt_project_schema(version, self.disable_ssl_verification)
+
+            specific_properties = {}
+            open_ended = set()
+
+            # Check all node type definitions
+            for def_name, definition in schema.get("definitions", {}).items():
+                # Skip if definition is not a dict (some are boolean values)
+                if not isinstance(definition, dict):
+                    continue
+                if "properties" in definition:
+                    for prop_name, prop_spec in definition["properties"].items():
+                        # Skip if it doesn't start with +
+                        if not prop_name.startswith("+"):
+                            continue
+
+                        config_name = prop_name[1:]  # Remove + prefix
+
+                        # Check if this is an object/dict type
+                        if isinstance(prop_spec, dict):
+                            # Check for type: ["object", "null"] pattern
+                            types = prop_spec.get("type", [])
+                            if isinstance(types, list) and "object" in types:
+                                if "properties" in prop_spec:
+                                    # Has specific properties defined
+                                    specific_properties[config_name] = set(prop_spec["properties"].keys())
+                                elif prop_spec.get("additionalProperties") is not False:
+                                    # If additionalProperties is not explicitly False, it accepts any key-value
+                                    open_ended.add(config_name)
+
+                            # Check anyOf patterns
+                            elif "anyOf" in prop_spec:
+                                for option in prop_spec["anyOf"]:
+                                    # Check for $ref to another definition
+                                    if "$ref" in option:
+                                        ref_name = option["$ref"].split("/")[-1]
+                                        if ref_name in schema.get("definitions", {}):
+                                            ref_def = schema["definitions"][ref_name]
+                                            if ref_def.get("type") == "object":
+                                                if "properties" in ref_def:
+                                                    # Has specific properties defined
+                                                    specific_properties[config_name] = set(ref_def["properties"].keys())
+                                                elif ref_def.get("additionalProperties") is not False:
+                                                    # If additionalProperties is not explicitly False, it accepts any key-value
+                                                    open_ended.add(config_name)
+                                        break
+
+            self._dict_config_cache = {
+                "specific_properties": specific_properties,
+                "open_ended": open_ended
+            }
+
+        return self._dict_config_cache
 
 
 def get_fusion_latest_version(disable_ssl_verification: bool = False) -> str:
