@@ -16,10 +16,16 @@ packages:
     version: ">0.2.1"
 # package is compatible from version 0.1.2
   - package: Matts52/dbt_stat_test
-    version: "0.1.1"
+    version: "0.1.1" # inline comment
 # package has unknown require dbt version
   - package: avohq/avo_audit
     version: 1.0.1
 # versions up to 0.5.0 have require dbt version > 1.0, higher versions have <2.0
   - package: MaterializeInc/materialize_dbt_utils
     version: 0.6.0
+# version 1.1.0 has a manual override as incompatible
+  - package: "dbt-labs/dbt_project_evaluator"
+    version: "1.1.0"
+# version is incompatible, but compatible version has different name
+  - package: calogica/dbt_date
+    version: 0.10.1
