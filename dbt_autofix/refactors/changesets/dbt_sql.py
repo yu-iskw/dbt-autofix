@@ -342,8 +342,19 @@ def _serialize_config_macro_call(config_dict: dict, config_source_map: Optional[
                     # This preserves original source code including Jinja expressions
                     if meta_k in config_source_map:
                         meta_v_str = config_source_map[meta_k]
-                    elif isinstance(meta_v, str) and not (meta_v.startswith('"') or meta_v.startswith("'")):
-                        meta_v_str = f"'{meta_v}'"
+                    elif isinstance(meta_v, str):
+                        # Check for AST node string representations
+                        if meta_v.startswith(('Keyword', 'Call', 'Const', 'Name', 'List')):
+                            raise ValueError(
+                                f"Failed to extract source code for meta key '{meta_k}'. "
+                                f"Got AST representation instead: {meta_v[:100]}... "
+                                f"This is a bug in dbt-autofix. Please report this issue with your config() call."
+                            )
+                        # Add quotes if not already quoted
+                        if not (meta_v.startswith('"') or meta_v.startswith("'")):
+                            meta_v_str = f"'{meta_v}'"
+                        else:
+                            meta_v_str = meta_v
                     elif isinstance(meta_v, (dict, list)):
                         # For nested structures, use repr to get proper Python syntax
                         meta_v_str = repr(meta_v)
@@ -369,10 +380,14 @@ def _serialize_config_macro_call(config_dict: dict, config_source_map: Optional[
             elif isinstance(v, str):
                 # Check if it's already a string representation of an AST node
                 # (starts with a class name like "Keyword" or "Call")
-                if v.startswith(('Keyword', 'Call', 'Const', 'Name')):
-                    # This is an AST node string representation - try to use source map
-                    # If not available, we'll use the string as-is (not ideal but better than nothing)
-                    v_str = v
+                if v.startswith(('Keyword', 'Call', 'Const', 'Name', 'List')):
+                    # This is an AST node string representation - this should never happen
+                    # It indicates that source extraction failed in construct_static_kwarg_value
+                    raise ValueError(
+                        f"Failed to extract source code for config key '{k}'. "
+                        f"Got AST representation instead: {v[:100]}... "
+                        f"This is a bug in dbt-autofix. Please report this issue with your config() call."
+                    )
                 else:
                     # Use double quotes for string values to match expected format
                     v_str = f'"{v}"'

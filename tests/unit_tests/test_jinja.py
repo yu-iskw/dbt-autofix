@@ -342,3 +342,40 @@ def test_integration_full_workflow(config_str, expected_keys, expected_values):
         assert key in result
         assert result[key] == expected_value
 
+
+def test_construct_static_kwarg_value_very_long_value():
+    """Test that very long config values (>1000 chars) are extracted and serialized properly.
+    
+    This test ensures that the 1000 character limit has been removed from
+    construct_static_kwarg_value() so that long config values (like multi-line SQL
+    in post_hook) are properly extracted and can be serialized back without
+    writing AST object representations.
+    
+    Without the fix, extraction would fail for values >1000 chars, falling back to
+    str(kwarg) which returns an AST representation like "Keyword(key='post_hook', ...)".
+    This AST string would then be written to the file, corrupting it.
+    """
+    from dbt_autofix.refactors.changesets.dbt_sql import _serialize_config_macro_call
+    
+    # Create a long SQL string (over 1000 chars)
+    long_sql = "SELECT " + ", ".join([f"column_{i}" for i in range(200)])
+    config_str = f"{{{{ config(post_hook='{long_sql}') }}}}"
+    
+    # Step 1: Extract the config
+    result = statically_parse_unrendered_config(config_str)
+    
+    assert result is not None
+    assert 'post_hook' in result
+    
+    # Step 2: Try to serialize it back - this is where the bug would manifest
+    # Without the fix, this would try to serialize an AST object string
+    serialized = _serialize_config_macro_call(result, result)
+    
+    # The serialized output should contain the actual SQL, not AST representations
+    assert 'post_hook=' in serialized
+    assert long_sql in serialized
+    # Most importantly: should NOT contain AST object markers
+    assert 'Keyword(' not in serialized
+    assert 'Const(' not in serialized
+    assert 'List(' not in serialized
+

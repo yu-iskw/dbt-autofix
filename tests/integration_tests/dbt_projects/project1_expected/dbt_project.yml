@@ -1,11 +1,11 @@
 # Name your project! Project names should contain only lowercase characters
 # and underscores. A good package name should reflect your organization's
 # name or the intended use of these models
-name: 'dbt_autofix_tests'
-version: '1.0.0'
+name: "dbt_autofix_tests"
+version: "1.0.0"
 
 # This setting configures which "profile" dbt uses for this project.
-profile: 'dbt_autofix_tests'
+profile: "dbt_autofix_tests"
 
 # These configurations specify where dbt should look for different types of files.
 # The `model-paths` config, for example, states that models in this project can be
@@ -16,10 +16,9 @@ test-paths: ["tests"]
 seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
-clean-targets:         # directories to be removed by `dbt clean`
+clean-targets: # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
-
 
 # Configuring models
 # Full documentation: https://docs.getdbt.com/docs/configuring-models
@@ -41,6 +40,15 @@ models:
       +dataset: my_dataset
       +project: my_project
       +data_space: my_data_space
+    analytics:
+      +post-hook:
+        - "{% if target.name == 'prod' %}GRANT SELECT ON {{ this }} TO ROLE analytics_reader; GRANT SELECT ON {{ this }} TO ROLE data_science_team; GRANT SELECT ON {{ this }} TO ROLE executive_dashboard; GRANT SELECT ON {{ this }} TO ROLE finance_team{% endif %}"
+        - "{% set audit_columns = ['table_name', 'schema_name', 'last_updated_timestamp', 'row_count', 'update_frequency', 'data_quality_score', 'completeness_percentage', 'freshness_hours'] %}INSERT INTO {{ target.schema }}.audit_log ({% for col in audit_columns %}{{ col }}{{ ',' if not loop.last }}{% endfor %}) SELECT '{{ this }}', '{{ this.schema }}', CURRENT_TIMESTAMP, COUNT(*), 'daily', 95.5, 99.8, DATEDIFF(hour, MAX(updated_at), CURRENT_TIMESTAMP) FROM {{ this }}"
+        - "{% if var('enable_data_quality_checks', true) %}INSERT INTO {{ target.schema }}.data_quality_results (model_name, check_type, check_result, execution_time) VALUES ('{{ this }}', 'row_count', CASE WHEN COUNT(*) > 0 THEN 'PASS' ELSE 'FAIL' END, CURRENT_TIMESTAMP); INSERT INTO {{ target.schema }}.data_quality_results (model_name, check_type, check_result, execution_time) SELECT '{{ this }}', 'null_check', CASE WHEN COUNT(*) FILTER (WHERE primary_key IS NULL) = 0 THEN 'PASS' ELSE 'FAIL' END, CURRENT_TIMESTAMP FROM {{ this }}{% endif %}"
+        - "CALL {{ target.schema }}.update_metadata_registry('{{ this }}', '{{ run_started_at }}', '{{ invocation_id }}', '{{ target.name }}', '{{ env_var('DBT_CLOUD_PROJECT_ID', 'local') }}', '{{ env_var('DBT_CLOUD_JOB_ID', 'manual') }}', '{{ env_var('DBT_CLOUD_RUN_ID', 'local_run') }}', '{{ dbt_version }}')"
+      +pre-hook: "CREATE SCHEMA IF NOT EXISTS {{ target.schema }}; CREATE TABLE IF NOT EXISTS {{ target.schema }}.audit_log (table_name VARCHAR, schema_name VARCHAR, last_updated_timestamp TIMESTAMP, row_count BIGINT, update_frequency VARCHAR, data_quality_score FLOAT, completeness_percentage FLOAT, freshness_hours INT)"
+      +materialized: table
+      +tags: ["analytics", "daily"]
 
 seeds:
   dbt_autofix_tests:

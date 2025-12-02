@@ -212,8 +212,8 @@ def construct_static_kwarg_value(kwarg, source_string: str) -> str:
             extractor = _SourceCodeExtractor(source_string)
             source_value = extractor.extract_until_delimiter(value_start, delimiters=(',', ')'))
             
-            # Validate that we got something reasonable
-            if source_value and len(source_value) < 1000:
+            # Return the extracted source if we got something
+            if source_value:
                 return source_value
     except Exception:
         pass
