@@ -72,8 +72,8 @@ def test_config_require_refactor():
     assert "config.require('materialized')" in result.refactored_content  # Should not change
 
 
-def test_config_with_validator_skipped():
-    """Test that config with validators are skipped with warning."""
+def test_config_with_validator():
+    """Test that config with validators are now properly refactored."""
     sql_content = """
 {%- set file_format = config.get('custom_format', validator=validation.any[basestring]) -%}
 """
@@ -82,9 +82,9 @@ def test_config_with_validator_skipped():
         sql_content, MockSchemaSpecs(), "models"
     )
 
-    assert not result.refactored  # Should not refactor
-    assert len(result.refactor_warnings) == 1
-    assert "validator" in result.refactor_warnings[0]
+    assert result.refactored  # Should refactor since validators are now supported
+    assert "config.meta_get('custom_format', validator=validation.any[basestring])" in result.refactored_content
+    assert len(result.refactor_warnings) == 0  # No warnings since validators work
 
 
 def test_variable_shadowing_detection():
@@ -120,7 +120,7 @@ def test_chained_access_warning():
 
 
 def test_mixed_quotes():
-    """Test handling of mixed quote styles."""
+    """Test handling of mixed quote styles - preserves original quotes."""
     sql_content = """
 {{ config.get("custom_key1") }}
 {{ config.get('custom_key2') }}
@@ -132,9 +132,10 @@ def test_mixed_quotes():
     )
 
     assert result.refactored
+    # Now preserves original quote style
     assert 'config.meta_get("custom_key1")' in result.refactored_content
     assert "config.meta_get('custom_key2')" in result.refactored_content
-    assert 'config.meta_get("custom_key3")' in result.refactored_content
+    assert 'config.meta_get(  "custom_key3"  )' in result.refactored_content  # Preserves spacing too
 
 
 def test_complex_defaults():
@@ -173,7 +174,7 @@ def test_no_refactor_for_dbt_configs():
 
 
 def test_multiline_config_calls():
-    """Test handling of multiline config calls."""
+    """Test handling of multiline config calls - preserves formatting."""
     sql_content = """
 {{ config.get(
     'custom_key',
@@ -186,4 +187,5 @@ def test_multiline_config_calls():
     )
 
     assert result.refactored
+    # Should preserve the exact multiline formatting
     assert "config.meta_get(\n    'custom_key',\n    'default_value'\n)" in result.refactored_content

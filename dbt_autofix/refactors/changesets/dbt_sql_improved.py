@@ -55,14 +55,15 @@ def move_custom_config_access_to_meta_sql_improved(
     # Pattern to match config.get() and config.require() calls
     # This handles:
     # - Single and double quotes
-    # - Optional whitespace
+    # - Optional whitespace (including multiline)
     # - Optional default parameter
     # - Optional validator parameter
     pattern = re.compile(
-        r"config\.(get|require)\s*\(\s*"  # config.get( or config.require(
-        r"([\"'])(?P<key>[^\"']+)\2"      # quoted key
-        r"(?:\s*,\s*(?P<args>.*?))?"      # optional remaining args
-        r"\s*\)",                          # closing paren
+        r"config\.(get|require)\s*\("     # config.get( or config.require(
+        r"(?P<pre_ws>\s*)"                 # whitespace before the key
+        r"(?P<quote>[\"'])(?P<key>[^\"']+)(?P=quote)"  # quoted key with captured quote style
+        r"(?P<rest>.*?)"                   # rest of the call including args and whitespace
+        r"\)",                             # closing paren
         re.DOTALL
     )
 
@@ -72,8 +73,10 @@ def move_custom_config_access_to_meta_sql_improved(
 
     for match in matches:
         method = match.group(1)  # 'get' or 'require'
+        pre_whitespace = match.group("pre_ws")  # Whitespace before key
+        quote_style = match.group("quote")  # Preserve original quote style
         config_key = match.group("key")
-        remaining_args = match.group("args")
+        rest_of_call = match.group("rest")  # Everything after the key including comma, args, and whitespace
 
         # Skip if this is a dbt-native config
         if config_key in allowed_config_fields:
@@ -83,15 +86,11 @@ def move_custom_config_access_to_meta_sql_improved(
         start, end = match.span()
         original = match.group(0)
 
-        # Construct the new method call
+        # Construct the new method call preserving original formatting
         new_method = f"meta_{method}"
 
-        if remaining_args:
-            # Preserve all arguments including defaults and validators
-            # Validators are now supported in Fusion's meta_get() and meta_require()
-            replacement = f"config.{new_method}('{config_key}', {remaining_args})"
-        else:
-            replacement = f"config.{new_method}('{config_key}')"
+        # Build replacement with preserved whitespace and formatting
+        replacement = f"config.{new_method}({pre_whitespace}{quote_style}{config_key}{quote_style}{rest_of_call})"
 
         replacements.append((start, end, replacement, original))
         refactored = True
