@@ -189,3 +189,28 @@ def test_multiline_config_calls():
     assert result.refactored
     # Should preserve the exact multiline formatting
     assert "config.meta_get(\n    'custom_key',\n    'default_value'\n)" in result.refactored_content
+
+
+def test_config_get_with_named_default_parameter():
+    """Test config.get() with default= named parameter syntax and complex default values."""
+    sql_content = """
+{{ config.get('custom_config', default='default_value') }}
+
+{{ config.get('custom_config', default=var.get('my_var')) }}
+
+{{ config.get('custom_config', default=dest_columns | map(attribute="quoted") | list) }}
+"""
+
+    result = move_custom_config_access_to_meta_sql_improved(
+        sql_content, MockSchemaSpecs(), "models"
+    )
+
+    assert result.refactored
+
+    # Check that all three cases are properly refactored
+    assert "{{ config.meta_get('custom_config', default='default_value') }}" in result.refactored_content
+    assert "{{ config.meta_get('custom_config', default=var.get('my_var')) }}" in result.refactored_content
+    assert '{{ config.meta_get(\'custom_config\', default=dest_columns | map(attribute="quoted") | list) }}' in result.refactored_content
+
+    # Ensure we have 3 deprecation refactors
+    assert len(result.deprecation_refactors) == 3
