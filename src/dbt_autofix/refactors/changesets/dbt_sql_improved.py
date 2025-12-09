@@ -5,6 +5,31 @@ from dbt_autofix.deprecations import DeprecationType
 from dbt_autofix.refactors.results import DbtDeprecationRefactor, SQLRuleRefactorResult
 from dbt_autofix.retrieve_schemas import SchemaSpecs
 
+# Statically compiled regex patterns for performance
+# Pattern to detect config variable shadowing
+SET_CONFIG_PATTERN = re.compile(r"{%\s*set\s+config\s*=")
+CONFIG_ALIAS_PATTERN = re.compile(r"{%\s*set\s+\w+\s*=\s*config\s*%}")
+
+# Pattern to match config.get() and config.require() calls
+# This handles:
+# - Single and double quotes
+# - Optional whitespace (including multiline)
+# - Optional default parameter
+# - Optional validator parameter
+CONFIG_ACCESS_PATTERN = re.compile(
+    r"config\.(get|require)\s*\("     # config.get( or config.require(
+    r"(?P<pre_ws>\s*)"                 # whitespace before the key
+    r"(?P<quote>[\"'])(?P<key>[^\"']+)(?P=quote)"  # quoted key with captured quote style
+    r"(?P<rest>.*?)"                   # rest of the call including args and whitespace
+    r"\)",                             # closing paren
+    re.DOTALL
+)
+
+# Pattern to detect chained config access
+CHAINED_ACCESS_PATTERN = re.compile(
+    r"config\.(get|require)\s*\([^)]+\)\s*\."  # config.get(...).
+)
+
 
 def move_custom_config_access_to_meta_sql_improved(
     sql_content: str, schema_specs: SchemaSpecs, node_type: str
@@ -30,11 +55,7 @@ def move_custom_config_access_to_meta_sql_improved(
     refactor_warnings: List[str] = []
 
     # Check for variable shadowing more carefully
-    # Look for patterns like "{% set config = " or "{% set <var> = config %}"
-    set_config_pattern = re.compile(r"{%\s*set\s+config\s*=")
-    config_alias_pattern = re.compile(r"{%\s*set\s+\w+\s*=\s*config\s*%}")
-
-    if set_config_pattern.search(sql_content) or config_alias_pattern.search(sql_content):
+    if SET_CONFIG_PATTERN.search(sql_content) or CONFIG_ALIAS_PATTERN.search(sql_content):
         refactor_warnings.append(
             "Detected potential config variable shadowing. Skipping refactor to avoid false positives."
         )
@@ -52,23 +73,8 @@ def move_custom_config_access_to_meta_sql_improved(
     for specs in schema_specs.yaml_specs_per_node_type.values():
         allowed_config_fields.update(specs.allowed_config_fields)
 
-    # Pattern to match config.get() and config.require() calls
-    # This handles:
-    # - Single and double quotes
-    # - Optional whitespace (including multiline)
-    # - Optional default parameter
-    # - Optional validator parameter
-    pattern = re.compile(
-        r"config\.(get|require)\s*\("     # config.get( or config.require(
-        r"(?P<pre_ws>\s*)"                 # whitespace before the key
-        r"(?P<quote>[\"'])(?P<key>[^\"']+)(?P=quote)"  # quoted key with captured quote style
-        r"(?P<rest>.*?)"                   # rest of the call including args and whitespace
-        r"\)",                             # closing paren
-        re.DOTALL
-    )
-
     # Collect all replacements first
-    matches = list(pattern.finditer(refactored_content))
+    matches = list(CONFIG_ACCESS_PATTERN.finditer(refactored_content))
     replacements: List[Tuple[int, int, str, str]] = []
 
     for match in matches:
@@ -112,11 +118,7 @@ def move_custom_config_access_to_meta_sql_improved(
         )
 
     # Also check for chained access patterns that need manual intervention
-    chained_pattern = re.compile(
-        r"config\.(get|require)\s*\([^)]+\)\s*\."  # config.get(...).
-    )
-
-    chained_matches = list(chained_pattern.finditer(sql_content))
+    chained_matches = list(CHAINED_ACCESS_PATTERN.finditer(sql_content))
     for match in chained_matches:
         # Extract the config key to check if it's custom
         key_match = re.search(r"([\"'])([^\"']+)\1", match.group(0))
