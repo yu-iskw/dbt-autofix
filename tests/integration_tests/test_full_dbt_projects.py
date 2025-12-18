@@ -129,6 +129,7 @@ def test_project_refactor(project_folder, request):
                 json_output=True,
                 behavior_change=project_dir_to_behavior_change_mode[project_folder],
                 semantic_layer=project_dir_to_semantic_layer_mode[project_folder],
+                check=True,
             )
         except typer.Exit as e:
             assert e.exit_code == 1

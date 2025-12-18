@@ -62,6 +62,9 @@ def refactor_yml(  # noqa: PLR0913
         bool, typer.Option("--all", help="Run all fixes, including those that may require a behavior change")
     ] = False,
     semantic_layer: Annotated[bool, typer.Option("--semantic-layer", help="Run fixes to semantic layer")] = False,
+    check: Annotated[
+        bool, typer.Option("--check", help="Exit with non-zero code if changes would be made or were made")
+    ] = False,
 ):
     if semantic_layer and include_packages:
         raise typer.BadParameter("--include-packages is not supported with --semantic-layer")
@@ -92,7 +95,7 @@ def refactor_yml(  # noqa: PLR0913
     else:
         apply_changesets(yaml_results, sql_results, json_output)
 
-    if any(changeset.refactored for changeset in [*yaml_results, *sql_results]):
+    if check and any(changeset.refactored for changeset in [*yaml_results, *sql_results]):
         raise typer.Exit(code=1)
 
     if json_output:

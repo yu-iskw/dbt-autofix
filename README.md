@@ -22,7 +22,7 @@ The following deprecations are covered by `dbt-autofix deprecations`:
 | `ConfigSourcePathDeprecation`     | `dbt_project.yml` | Remove deprecated config for source path                                                         |   Full  | No |
 | `ConfigTargetPathDeprecation`     | `dbt_project.yml` | Remove deprecated config for target path                                                         |   Full  | No |
 | `ExposureNameDeprecation` | YAML files | Replaces spaces with underscores and removes non-alphanumeric characters in exposure names | Full | Yes |
-| `ResourceNamesWithSpacesDeprecation` | SQL files, YAML files | Replaces spaces with underscores in resource names, updating .sql filenames as necessary | Full | Yes |  
+| `ResourceNamesWithSpacesDeprecation` | SQL files, YAML files | Replaces spaces with underscores in resource names, updating .sql filenames as necessary | Full | Yes |
 | `SourceFreshnessProjectHooksNotRun` | `dbt_project.yml` | Set `source_freshness_run_project_hooks` in `dbt_project.yml` "flags" to true | Full | Yes |
 | `MissingArgumentsPropertyInGenericTestDeprecation` | YAML files | Move any keyword arguments defined as top-level property on generic test to `arguments` property | Full | No |
 
@@ -55,7 +55,7 @@ If you don't have `uv` installed, you can install `uv` and `uvx`, [following the
 
 #### With pip
 
-You can also use `pip` if you prefer, but we then recommend installing the tool in its own Python virtual environment. Once in a venv, install the tool with `pip install dbt-autofix` and then run `dbt-autofix ...` 
+You can also use `pip` if you prefer, but we then recommend installing the tool in its own Python virtual environment. Once in a venv, install the tool with `pip install dbt-autofix` and then run `dbt-autofix ...`
 
 ### From the source repo
 
@@ -83,14 +83,15 @@ uv tool install --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-autof
   - add `--select <path>` to only select files in a given path (by default the tool will look at all files of the dbt project)
   - add `--include-packages` to also autofix the packages installed. Just note that those fixes will be reverted at the next `dbt deps` and the long term fix will be to update the packages to versions compatible with Fusion.
   - add `--behavior-change` to run the _subset_ of fixes that would resolve deprecations that require a behavior change. Refer to the coverage tables above to determine which deprecations require behavior changes.
+  - add `--check` to exit with a non-zero code if changes would be made (dry-run) or were made (fix mode). By default, the tool exits with code 0 even if changes are made.
 
 Each JSON object will have the following keys:
 
-- "mode": "applied" or "dry_run" 
+- "mode": "applied" or "dry_run"
 - "file_path": the full path of the file modified. Each file will appear only once
 - "refactors": the list of refactoring rules applied
 
-Calling `deprecations` without `--dry-run` should be safe if your dbt code is part of a git repo. 
+Calling `deprecations` without `--dry-run` should be safe if your dbt code is part of a git repo.
 
 Please review the suggested changes to your dbt project before merging to `main` and make those changes go through your typical CI/CD process.
 
@@ -109,7 +110,7 @@ Running with `--behavior-changes` will run the _subset_ of fixes that would reso
 
 ### Using `AGENTS.md`
 
-[`AGENTS.md`](./AGENTS.md) is provided as a reference and starting place for those interested in using AI agents in Cursor, Copilot Chat, and Claude Code to try resolving remaining errors after running dbt-autofix. 
+[`AGENTS.md`](./AGENTS.md) is provided as a reference and starting place for those interested in using AI agents in Cursor, Copilot Chat, and Claude Code to try resolving remaining errors after running dbt-autofix.
 
 **To use AGENTS.md:**
 1. Download AGENTS.md and the /manual_fixes/ directory (you can remove these files after using the agentic autofix workflow)
@@ -124,11 +125,11 @@ Please make my dbt project compatible with Fusion by strictly following the inst
 
 Have you had to make manual adjustments to get your dbt project working with Fusion? We’d love for you to contribute them back to the community through this agentic workflow!
 
-The `/manual_fixes/` folder is a collection of real examples where users have solved compatibility issues manually, and we would love your contribution to it. Your contribution helps improve autofix for everyone and can prevent others from hitting the same issue. 
+The `/manual_fixes/` folder is a collection of real examples where users have solved compatibility issues manually, and we would love your contribution to it. Your contribution helps improve autofix for everyone and can prevent others from hitting the same issue.
 
 ### Pre-commit Hooks
 
-You can use `dbt-autofix` as a pre-commit hook to automatically catch and fix deprecations before committing code. 
+You can use `dbt-autofix` as a pre-commit hook to automatically catch and fix deprecations before committing code.
 
 Add the following to your `.pre-commit-config.yaml`:
 
@@ -142,5 +143,5 @@ repos:
       - id: dbt-autofix-fix # Automatically fix deprecations
       # OR
       - id: dbt-autofix-fix # Pass in multiple args
-        args: [--semantic-layer, --include-packages, --behavior-change]      
+        args: [--semantic-layer, --include-packages, --behavior-change]
 ```
