@@ -18,3 +18,8 @@ venv
 # special files
 config_resources.csv
 project2/*
+
+.DS_Store
+
+# raw package hub output (because big)
+src/dbt_autofix/packages/scripts/output/*

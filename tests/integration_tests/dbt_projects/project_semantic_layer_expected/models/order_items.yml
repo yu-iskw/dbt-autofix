@@ -19,6 +19,7 @@ models:
       - name: product_id
         entity:
           type: foreign
+          name: product
       - name: ordered_at
         dimension:
           type: time
@@ -40,6 +41,13 @@ models:
         description: Sum of the product revenue for each order item. Excludes tax.
         type: simple
         label: Revenue
+        agg: sum
+        expr: product_price
+      - name: revenue_with_stacked_filters
+        description: Sum of the product revenue for each order item. Excludes tax.
+        type: simple
+        label: Revenue
+        filter: (revenue_filter_on_metric_itself) AND (revenue_filter_on_input)
         agg: sum
         expr: product_price
       - name: median_revenue
@@ -94,6 +102,15 @@ models:
         label: Cumulative Revenue (All Time)
         type: cumulative
         input_metric: revenue_1
+      - name: aaa_order_multi_layer_derived_metric # aaa in name to make it process earlier than dependencies
+        description: "Derived metric that uses metrics from two different models."
+        type: derived
+        label: multi model avg revenue per food order
+        expr: current_revenue / cumulative_revenue
+        input_metrics:
+          - name: revenue
+            alias: current_revenue
+          - name: cumulative_revenue
       - name: revenue_fill_nulls_with_150_join_to_timespine
         description: The revenue generated for each order item. Revenue is calculated as a sum of revenue associated with each product in an order.
         agg: sum
@@ -108,6 +125,7 @@ models:
         type: cumulative
         input_metric:
           name: revenue_fill_nulls_with_150_join_to_timespine
+          filter: cumulative_filter
       - name: revenue_fill_nulls_with_test_join_to_timespine
         description: The revenue generated for each order item. Revenue is calculated as a sum of revenue associated with each product in an order.
         agg: sum
@@ -163,6 +181,15 @@ metrics:
       - base_property: dimension
         conversion_property: entity
 
+  - name: multi_model_derived_metric
+    description: "Derived metric that uses metrics from two different models"
+    type: derived
+    label: multi model avg revenue per food order
+    expr: current_revenue / food_orders
+    input_metrics:
+      - name: revenue
+        alias: current_revenue
+      - name: food_orders
   - name: order_gross_profit
     description: Gross profit from each order.
     type: derived

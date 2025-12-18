@@ -9,6 +9,9 @@ semantic_models:
       - name: location
         type: primary
         expr: location_id
+      - name: not_mergeable_entity
+        type: categorical
+        expr: location + " " + location_name
     dimensions:
       - name: location_name
         type: categorical
@@ -17,6 +20,9 @@ semantic_models:
         type: time
         type_params:
           time_granularity: day
+      - name: my_complex_dimension
+        expr: CONCAT(location_name, ' ', opened_at)
+        type: categorical
     measures:
       - name: average_tax_rate
         description: Average tax rate.

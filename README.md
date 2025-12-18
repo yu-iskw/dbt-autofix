@@ -2,6 +2,8 @@
 
 dbt-autofix automatically scans your dbt project for deprecated configurations and updates them to align with the latest best practices. This makes it easier to resolve deprecation warnings introduced in dbt v1.10 as well as prepare for migration to the dbt Fusion engine.
 
+***NEW in version 0.17.0***: dbt-autofix can now check package dependencies for compatibility with dbt Fusion and dbt 2.0 and automatically upgrade packages to newer compatible versions. See `packages` in the `Usage` section below for more detail.
+
 There will also be cases that dbt-autofix cannot resolve and require manual intervention. For those scenarios, using AI Agents can be helpfiul see the below section on [Using `AGENTS.md`](#using-agentsmd). Even if you don't intend to use LLMs, the [`AGENTS.md`](./AGENTS.md) can be a very helpful guidance for work that may need to be done after autofix has done it's part.
 
 
@@ -52,6 +54,7 @@ If you don't have `uv` installed, you can install `uv` and `uvx`, [following the
 - to run the latest version of the tool: `uvx dbt-autofix`
 - to run a specific version of the tool: `uvx dbt-autofix@0.1.2`
 - to install the tool as a dedicated CLI: `uv tool install dbt-autofix`
+- to upgrade the tool installed as a dedicated CLI: `uv tool upgrade dbt-autofix`
 
 #### With pip
 
@@ -66,7 +69,7 @@ run the tool directly
 uvx --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-autofix --help
 ```
 
-or install it so that it can be run with `dbt-cleanup` in the future
+or install it so that it can be run with `dbt-autofix` in the future
 ```sh
 uv tool install --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-autofix
 ```
@@ -82,8 +85,8 @@ uv tool install --from git+https://github.com/dbt-labs/dbt-autofix.git dbt-autof
   - add `--json-schema-version v2.0.0-beta.4` to get the JSON schema from a specific Fusion release (by default we pick the latest)
   - add `--select <path>` to only select files in a given path (by default the tool will look at all files of the dbt project)
   - add `--include-packages` to also autofix the packages installed. Just note that those fixes will be reverted at the next `dbt deps` and the long term fix will be to update the packages to versions compatible with Fusion.
+  - add `--include-private-packages` to autofix just the _private_ packages (those not on [hub.getdbt.com](https://hub.getdbt.com/)) installed. Just note that those fixes will be reverted at the next `dbt deps` and the long term fix will be to update the packages to versions compatible with Fusion.
   - add `--behavior-change` to run the _subset_ of fixes that would resolve deprecations that require a behavior change. Refer to the coverage tables above to determine which deprecations require behavior changes.
-  - add `--check` to exit with a non-zero code if changes would be made (dry-run) or were made (fix mode). By default, the tool exits with code 0 even if changes are made.
 
 Each JSON object will have the following keys:
 
@@ -95,6 +98,30 @@ Calling `deprecations` without `--dry-run` should be safe if your dbt code is pa
 
 Please review the suggested changes to your dbt project before merging to `main` and make those changes go through your typical CI/CD process.
 
+
+### `packages` - the new one
+
+- `dbt-autofix packages`: scan package dependencies for compatibility with Fusion and dbt 2.0 and modify packages.yml or dependencies.yml to upgrade any incompatible packages to a newer compatible version
+  - add `--force-upgrade` to override the version range currently defined in your project's packages.yml/dependencies.yml
+  - add `--path <mypath>` to configure the path of the dbt project (defaults to `.`)
+  - add `--dry-run` for running in dry run mode
+  - add `--json` to get resulting data in a JSONL format
+
+If any packages are upgraded, you must run `dbt deps` in your project to install the new versions and update your lock file.
+
+Each JSON object will have the following keys:
+
+- "mode": "applied" or "dry_run" 
+- "file_path": the full path of the file modified
+- "upgrades": the list of packages upgraded to newer versions
+- "unchanged": the list of packages not upgraded and the reason for not upgrading, including:
+  - Package is already compatible with Fusion and no update is required
+  - Package is not compatible with Fusion and Package Hub does not have a newer version with Fusion compatibility
+  - Package has not defined Fusion compatibility using `require-dbt-version`
+
+Calling `packages` without `--dry-run` should be safe if your dbt code is part of a git repo. 
+
+Please review the suggested changes to your dbt project before merging to `main` and make those changes go through your typical CI/CD process.
 
 ### `jobs`
 
@@ -143,5 +170,5 @@ repos:
       - id: dbt-autofix-fix # Automatically fix deprecations
       # OR
       - id: dbt-autofix-fix # Pass in multiple args
-        args: [--semantic-layer, --include-packages, --behavior-change]
+        args: [--semantic-layer, --include-packages, --behavior-change]      
 ```

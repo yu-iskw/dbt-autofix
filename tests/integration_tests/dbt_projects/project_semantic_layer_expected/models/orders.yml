@@ -1,6 +1,6 @@
 models:
   - name: orders
-    description: "Order overview data mart, offering key details for each order inlcluding if it's a customer's first order and a food vs. drink item breakdown. One row per order.Order overview data mart, offering key details for each order inlcluding if it's a customer's first order and a food vs. drink item breakdown. One row per order.Order fact table. This table is at the order grain with one row per order.\n"
+    description: "Order overview data mart, offering key details for each order inlcluding if it's a customer's first order and a food vs. drink item breakdown. One row per order. Order fact table. This table is at the order grain with one row per order.\n"
     data_tests:
       - dbt_utils.expression_is_true:
           expression: "order_items_subtotal = subtotal"
@@ -25,6 +25,9 @@ models:
           name: customer
       - name: order_total
         description: The total amount of the order in USD including tax.
+        dimension:
+          type: categorical
+          name: order_total_dim
       - name: ordered_at
         description: The timestamp the order was placed at.
         dimension:
@@ -44,9 +47,7 @@ models:
       - name: location_id
         entity:
           type: foreign
-      - name: order_total_dim
-        dimension:
-          type: categorical
+          name: location
       - name: customer_order_number
         dimension:
           type: categorical

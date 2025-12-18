@@ -10,15 +10,13 @@ from dbt_autofix.retrieve_schemas import SchemaSpecs
 VALID_DBT_EXTENSIONS = {".sql", ".yml", ".yaml"}
 
 
-def is_relevant_dbt_file(file_path: Path, root_path: Path = Path.cwd()) -> bool:
+def is_relevant_dbt_file(file_path: Path, dbt_paths: dict, root_path: Path = Path.cwd()) -> bool:
     """Check if a file is a relevant dbt file using the project's actual configuration."""
     if file_path.suffix not in VALID_DBT_EXTENSIONS:
         return False
 
     if file_path.name == "dbt_project.yml":
         return True
-
-    dbt_paths = get_dbt_files_paths(root_path, include_packages=False)
 
     # Normalize to posix paths for cross-platform comparison
     # If file_path relative, resolve to root_path
@@ -36,14 +34,15 @@ def is_relevant_dbt_file(file_path: Path, root_path: Path = Path.cwd()) -> bool:
     return False
 
 
-def filter_relevant_files(filenames: List[str], root_path: Path = Path.cwd()) -> Optional[List[str]]:
+def filter_relevant_files(filenames: List[str], root_path: Path = Path.cwd()) -> List[str]:
     """Filter list of filenames to only include relevant dbt files."""
     if not filenames:
-        return None
+        return []
 
-    relevant_files = [f for f in filenames if is_relevant_dbt_file(Path(f), root_path)]
+    dbt_paths = get_dbt_files_paths(root_path, include_packages=False)
+    relevant_files = [f for f in filenames if is_relevant_dbt_file(Path(f), dbt_paths, root_path)]
 
-    return relevant_files if relevant_files else None
+    return relevant_files
 
 
 def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -93,6 +92,13 @@ def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Exclude dbt_project.yml keys from refactoring",
     )
+    parser.add_argument(
+        "--path",
+        "-p",
+        type=str,
+        default=".",
+        help="The path to the dbt project",
+    )
 
     return parser.parse_args(argv)
 
@@ -106,14 +112,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     """Run dbt-autofix deprecations check on staged files."""
     args = parse_arguments(argv)
 
-    select = filter_relevant_files(args.filenames)
+    path = Path(args.path)
+    select = filter_relevant_files(args.filenames, root_path=path)
 
-    if select is not None and len(select) == 0:
+    if not select:
         return 0  # No relevant files to check
 
     schema_specs = SchemaSpecs(version=None)
     changesets = changeset_all_sql_yml_files(
-        path=Path.cwd(),
+        path=path,
         schema_specs=schema_specs,
         dry_run=args.dry_run,
         exclude_dbt_project_keys=args.exclude_dbt_project_keys,
