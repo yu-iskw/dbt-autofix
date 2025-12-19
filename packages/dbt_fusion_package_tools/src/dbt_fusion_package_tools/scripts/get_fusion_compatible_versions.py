@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
 from typing import Any, Optional
-from dbt_autofix.packages.dbt_package_version import DbtPackageVersion
+
+from dbt_fusion_package_tools.dbt_package_version import DbtPackageVersion
 from dbt_fusion_package_tools.version_utils import VersionSpecifier
 
 
@@ -93,8 +94,7 @@ def get_versions_for_package(package_versions) -> dict[str, Any]:
         latest_version = latest_version_incl_prerelease
     assert latest_version is not None
     assert latest_version_incl_prerelease is not None
-    if latest_version > latest_version_incl_prerelease:
-        latest_version_incl_prerelease = latest_version
+    latest_version_incl_prerelease = max(latest_version_incl_prerelease, latest_version)
     if not package_redirect_name and not package_redirect_namespace:
         assert package_latest_version_index_json == latest_version
         assert len(fusion_compatible_versions) + len(fusion_incompatible_versions) + len(
@@ -160,7 +160,7 @@ def write_dict_to_json(data: dict[str, Any], dest_dir: Path, *, indent: int = 2,
 
 
 def main():
-    input: Path = Path.cwd() / "src" / "dbt_autofix" / "packages" / "scripts" / "output"
+    input: Path = Path.cwd() / "src" / "dbt_fusion_package_tools" / "scripts" / "output"
     data = read_package_output_json(input / "package_output.json")
     # check_package_names(data)
     packages_with_versions: dict[str, dict[str, Any]] = get_versions(data)
@@ -168,7 +168,7 @@ def main():
     write_dict_to_json(packages_with_versions, input)
     print("Output written to fusion_version_compatibility_output.json")
     with open(
-        Path.cwd() / "src" / "dbt_autofix" / "packages" / "fusion_version_compatibility_output.py", "w"
+        Path.cwd() / "src" / "dbt_fusion_package_tools" / "fusion_version_compatibility_output.py", "w"
     ) as output_py_file:
         output_py_file.write(
             f"from typing import Any\n\nFUSION_VERSION_COMPATIBILITY_OUTPUT: dict[str, dict[str, Any]] = {packages_with_versions}"
