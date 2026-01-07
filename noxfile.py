@@ -50,3 +50,27 @@ def run_cli_deprecations(session):
         env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
     )
     session.run("dbt-autofix", "deprecations")
+
+
+@nox.session(python=["3.10", "3.11", "3.12", "3.13"], venv_backend="uv")
+def test_pre_commit_installation(session):
+    """Test that dbt-autofix can be installed as a pre-commit hook"""
+    session.run_install(
+        "uv",
+        "sync",
+        "--extra=test",
+        f"--python={session.virtualenv.location}",
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    # Use try-repo with a non-existent file to test installation without execution.
+    # This avoids the requirement for a dbt_project.yml file while still
+    # triggering the pdm_build.py logic we want to verify.
+    session.run(
+        "pre-commit",
+        "try-repo",
+        ".",
+        "dbt-autofix-check",
+        "--files",
+        "non_existent_file",
+        "--verbose",
+    )
